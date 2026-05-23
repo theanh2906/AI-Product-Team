@@ -195,6 +195,58 @@ func (c *Client) GetProjectV2StatusField(ctx context.Context, projectID string) 
 	return "", "", fmt.Errorf("status field not found in project v2 %s", projectID)
 }
 
+// GetProjectV2StatusOptions trả về ID trường Status và map lưu trữ các Option (tên lowercased -> ID)
+func (c *Client) GetProjectV2StatusOptions(ctx context.Context, projectID string) (statusFieldID string, options map[string]string, err error) {
+	query := `query($projectId: ID!) {
+		node(id: $projectId) {
+			... on ProjectV2 {
+				fields(first: 50) {
+					nodes {
+						... on ProjectV2Field {
+							id
+							name
+						}
+						... on ProjectV2SingleSelectField {
+							id
+							name
+							options {
+								id
+								name
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	var result struct {
+		Node struct {
+			Fields struct {
+				Nodes []ProjectField `json:"nodes"`
+			} `json:"fields"`
+		} `json:"node"`
+	}
+
+	err = c.queryGraphQL(ctx, query, map[string]interface{}{"projectId": projectID}, &result)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get project fields: %w", err)
+	}
+
+	options = make(map[string]string)
+	for _, field := range result.Node.Fields.Nodes {
+		if strings.EqualFold(field.Name, "Status") {
+			statusFieldID = field.ID
+			for _, opt := range field.Options {
+				options[strings.ToLower(opt.Name)] = opt.ID
+			}
+			return statusFieldID, options, nil
+		}
+	}
+
+	return "", nil, fmt.Errorf("status field not found in project v2 %s", projectID)
+}
+
 // AddProjectV2ItemByID liên kết một Issue (hoặc PR) vào Project v2 thông qua NodeID (contentId)
 func (c *Client) AddProjectV2ItemByID(ctx context.Context, projectID string, contentID string) (string, error) {
 	mutation := `mutation($projectId: ID!, $contentId: ID!) {
@@ -267,4 +319,53 @@ func (c *Client) CreateKanbanCardByIssueNodeID(ctx context.Context, projectID st
 		}
 	}
 	return itemID, nil
+}
+
+// GetProjectV2ItemIDByContentID tìm ID của ProjectItem ứng với Content NodeID (của Issue/PR)
+func (c *Client) GetProjectV2ItemIDByContentID(ctx context.Context, projectID string, contentNodeID string) (string, error) {
+	query := `query($projectId: ID!) {
+		node(id: $projectId) {
+			... on ProjectV2 {
+				items(first: 100) {
+					nodes {
+						id
+						content {
+							... on Issue {
+								id
+							}
+							... on PullRequest {
+								id
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	var result struct {
+		Node struct {
+			Items struct {
+				Nodes []struct {
+					ID      string `json:"id"`
+					Content struct {
+						ID string `json:"id"`
+					} `json:"content"`
+				} `json:"nodes"`
+			} `json:"items"`
+		} `json:"node"`
+	}
+
+	err := c.queryGraphQL(ctx, query, map[string]interface{}{"projectId": projectID}, &result)
+	if err != nil {
+		return "", fmt.Errorf("failed to query project items: %w", err)
+	}
+
+	for _, node := range result.Node.Items.Nodes {
+		if node.Content.ID == contentNodeID {
+			return node.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("project item not found for content node id %s", contentNodeID)
 }

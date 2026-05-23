@@ -51,6 +51,13 @@ func main() {
 	}
 	issueNumber, _ := strconv.Atoi(issueNumStr)
 
+	// 1.1 Kiểm tra chế độ chạy (Orchestrator Mode)
+	orchestratorMode := strings.ToLower(os.Getenv("ORCHESTRATOR_MODE"))
+	if orchestratorMode == "qa" {
+		runQAAgentFlow(ctx, ghClient, githubToken, geminiAPIKey, owner, productRepoName, orchestratorRealName, issueNumber, issueTitle, projectNumStr, projectOwner)
+		return
+	}
+
 	// 2. Gọi "Bộ Não" Gemini (Giữ nguyên phần cấu hình Schema ở lượt trước)
 	fmt.Println("🧠 [Team Lead Agent]: Đang gửi Context qua Gemini để phân tích...")
 	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
@@ -227,4 +234,144 @@ func main() {
 	ghClient.Issues.CreateComment(ctx, owner, orchestratorRealName, issueNumber, comment)
 
 	fmt.Println("🎉 Hoàn tất toàn bộ chu trình khởi tạo của Team Lead!")
+}
+
+// runQAAgentFlow điều phối luồng chạy kiểm thử của QA Agent
+func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, geminiAPIKey, owner, productRepoName, orchestratorRealName string, issueNumber int, issueTitle string, projectNumStr, projectOwner string) {
+	fmt.Println("🧪 [QA Agent]: Đang khởi chạy chế độ kiểm thử...")
+
+	// 1. Lấy cấu hình lệnh test (Mặc định go test ./...)
+	testCommand := os.Getenv("TEST_COMMAND")
+	if testCommand == "" {
+		testCommand = "go test ./..."
+	}
+
+	// 2. Chạy QA Agent để thực thi test suite
+	qaAgent := agent.NewQAAgent()
+	testLog, pass, err := qaAgent.RunTests(ctx, testCommand)
+	if err != nil {
+		fmt.Printf("❌ Lỗi khi chạy test: %v\n", err)
+		os.Exit(1)
+	}
+
+	var reportBody string
+	var targetStatus string // "done" hoặc "backlog"
+
+	// 3. Xử lý kết quả test
+	if pass {
+		// Test Passed
+		reportBody = fmt.Sprintf("🤖 **[AI QA Agent Report]**\n\n✅ **Kiểm thử THÀNH CÔNG! (QA Passed)**\n\n- **Lệnh chạy:** `%s`\n\n### 🖥️ Chi tiết log kiểm thử:\n```text\n%s\n```", testCommand, testLog)
+		targetStatus = "done"
+	} else {
+		// Test Failed -> Gọi Gemini chẩn đoán lỗi
+		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, geminiAPIKey, testLog, issueTitle)
+		if diagErr != nil {
+			fmt.Printf("⚠️ Cảnh báo: Không thể gọi Gemini chẩn đoán lỗi: %v\n", diagErr)
+			diagnosis = "*(Không thể lấy phân tích chẩn đoán lỗi tự động từ Gemini)*"
+		}
+
+		// 3.1 Tạo Issue báo lỗi mới (như mong muốn của User)
+		bugTitle := fmt.Sprintf("[QA Failed] Bug found: %s", issueTitle)
+		bugBody := fmt.Sprintf("## ❌ Phát hiện lỗi trong quá trình kiểm thử tự động\n\n**Task liên quan:** #%d\n**Lệnh kiểm thử:** `%s`\n\n### 📑 Phân tích lỗi từ AI QA:\n%s\n\n### 🖥️ Chi tiết log kiểm thử:\n```text\n%s\n```", issueNumber, testCommand, diagnosis, testLog)
+
+		fmt.Printf("📋 [QA Agent]: Đang tạo Bug Issue trên Repo: %s...\n", productRepoName)
+		bugReq := &github.IssueRequest{
+			Title:  github.String(bugTitle),
+			Body:   github.String(bugBody),
+			Labels: &[]string{"bug", "qa-failed"},
+		}
+
+		createdBug, _, createBugErr := ghClient.Issues.Create(ctx, owner, productRepoName, bugReq)
+		var bugIssueLink string
+		if createBugErr != nil {
+			fmt.Printf("❌ Không thể tạo Bug Issue trên GitHub: %v\n", createBugErr)
+			bugIssueLink = "*(Lỗi khi tạo Bug Issue tự động)*"
+		} else {
+			bugNum := createdBug.GetNumber()
+			bugNodeID := createdBug.GetNodeID()
+			bugIssueLink = fmt.Sprintf("[#%d](https://github.com/%s/%s/issues/%d)", bugNum, owner, productRepoName, bugNum)
+			fmt.Printf("✅ Đã tạo Bug Issue #%d thành công!\n", bugNum)
+
+			// 3.2 Liên kết Bug Issue này vào Kanban Board (cột đầu tiên như Backlog/PM)
+			if projectNumStr != "" {
+				projectNum, _ := strconv.Atoi(projectNumStr)
+				wrapperClient := ghWrapper.NewClient(githubToken)
+				projectID, projErr := wrapperClient.GetProjectV2ID(ctx, projectOwner, projectNum)
+				if projErr == nil {
+					statusFieldID, options, optErr := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
+					if optErr == nil {
+						// Tìm cột mặc định để đưa thẻ Bug vào
+						var targetColID string
+						if id, ok := options["backlog"]; ok {
+							targetColID = id
+						} else if id, ok := options["pm"]; ok {
+							targetColID = id
+						} else if id, ok := options["todo"]; ok {
+							targetColID = id
+						}
+
+						if targetColID != "" {
+							_, _ = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, targetColID, bugNodeID)
+							fmt.Printf("🎯 Đã liên kết thẻ Bug vào bảng Kanban ở cột khởi đầu.\n")
+						}
+					}
+				}
+			}
+		}
+
+		reportBody = fmt.Sprintf("🤖 **[AI QA Agent Report]**\n\n❌ **Kiểm thử THẤT BẠI! (QA Failed)**\n\n- **Lệnh chạy:** `%s`\n- **Bug Issue được tạo:** %s\n\n### 📑 Phân tích lỗi từ AI:\n%s\n\n<details>\n<summary>Xem chi tiết log kiểm thử</summary>\n\n```text\n%s\n```\n\n</details>", testCommand, bugIssueLink, diagnosis, testLog)
+		targetStatus = "backlog"
+	}
+
+	// 4. Comment báo cáo lên PR/Issue hiện tại
+	comment := &github.IssueComment{Body: github.String(reportBody)}
+	_, _, commentErr := ghClient.Issues.CreateComment(ctx, owner, orchestratorRealName, issueNumber, comment)
+	if commentErr != nil {
+		fmt.Printf("❌ Không thể bình luận báo cáo QA lên GitHub: %v\n", commentErr)
+	}
+
+	// 5. Cập nhật trạng thái Kanban card của Task/PR gốc (nếu có Kanban)
+	if projectNumStr != "" {
+		projectNum, _ := strconv.Atoi(projectNumStr)
+		wrapperClient := ghWrapper.NewClient(githubToken)
+		projectID, err := wrapperClient.GetProjectV2ID(ctx, projectOwner, projectNum)
+		if err == nil {
+			statusFieldID, options, err := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
+			if err == nil {
+				// Tìm ID của cột đích tương ứng
+				var targetColID string
+				if id, ok := options[targetStatus]; ok {
+					targetColID = id
+				} else if targetStatus == "backlog" {
+					if id, ok := options["pm"]; ok {
+						targetColID = id
+					} else if id, ok := options["todo"]; ok {
+						targetColID = id
+					}
+				}
+
+				if targetColID != "" {
+					// Lấy Node ID của Issue/PR gốc để tìm Item ID tương ứng trên Kanban
+					refIssue, _, err := ghClient.Issues.Get(ctx, owner, orchestratorRealName, issueNumber)
+					if err == nil {
+						issueNodeID := refIssue.GetNodeID()
+						itemID, err := wrapperClient.GetProjectV2ItemIDByContentID(ctx, projectID, issueNodeID)
+						if err == nil {
+							// Di chuyển card sang cột tương ứng
+							err = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, itemID, statusFieldID, targetColID)
+							if err == nil {
+								fmt.Printf("🎯 Đã chuyển trạng thái Task gốc sang: %s\n", targetStatus)
+							} else {
+								fmt.Printf("❌ Không thể cập nhật trạng thái Task trên Kanban: %v\n", err)
+							}
+						} else {
+							fmt.Printf("⚠️ Cảnh báo: Không tìm thấy Kanban Item cho Task hiện tại: %v\n", err)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Println("🎉 Hoàn tất chu trình kiểm thử của QA Agent!")
 }
