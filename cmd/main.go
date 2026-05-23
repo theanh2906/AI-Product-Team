@@ -77,7 +77,7 @@ func main() {
 	systemInstruction := `Bạn là một AI Team Lead kiêm Business Analyst xuất sắc. Nhiệm vụ của bạn là bẻ nhỏ Issue thành các Task kỹ thuật chi tiết dưới dạng JSON.`
 	prompt := fmt.Sprintf("Hãy phân tích yêu cầu sau đây từ PM Ben:\nTiêu đề: %s\nNội dung chi tiết:\n%s", issueTitle, issueBody)
 
-	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), &genai.GenerateContentConfig{
+	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-review", genai.Text(prompt), &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{
 				genai.NewPartFromText(systemInstruction),
@@ -483,7 +483,7 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 	systemInstruction := `Bạn là một AI Team Lead kiêm Business Analyst xuất sắc. Nhiệm vụ của bạn là bẻ nhỏ Issue thành các Task kỹ thuật chi tiết dưới dạng JSON.`
 	prompt := fmt.Sprintf("Hãy phân tích yêu cầu sau đây từ PM Ben:\nTiêu đề: %s\nNội dung chi tiết:\n%s", details.Title, details.Body)
 
-	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), &genai.GenerateContentConfig{
+	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-review", genai.Text(prompt), &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{
 				genai.NewPartFromText(systemInstruction),
