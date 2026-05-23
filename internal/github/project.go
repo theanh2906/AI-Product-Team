@@ -174,11 +174,14 @@ func (c *Client) GetProjectV2StatusField(ctx context.Context, projectID string) 
 	for _, field := range result.Node.Fields.Nodes {
 		if strings.EqualFold(field.Name, "Status") {
 			statusFieldID = field.ID
-			// Tìm option "Todo", "To Do" hoặc "New"
-			for _, opt := range field.Options {
-				if strings.EqualFold(opt.Name, "Todo") || strings.EqualFold(opt.Name, "To Do") || strings.EqualFold(opt.Name, "New") {
-					todoOptionID = opt.ID
-					return statusFieldID, todoOptionID, nil
+			// Tìm option theo thứ tự ưu tiên (phù hợp với các loại Kanban Board khác nhau)
+			priorities := []string{"Todo", "To Do", "New", "Backlog", "PM"}
+			for _, targetName := range priorities {
+				for _, opt := range field.Options {
+					if strings.EqualFold(opt.Name, targetName) {
+						todoOptionID = opt.ID
+						return statusFieldID, todoOptionID, nil
+					}
 				}
 			}
 			// Nếu không khớp tên nào, lấy option đầu tiên làm mặc định
