@@ -369,3 +369,101 @@ func (c *Client) GetProjectV2ItemIDByContentID(ctx context.Context, projectID st
 
 	return "", fmt.Errorf("project item not found for content node id %s", contentNodeID)
 }
+
+// ProjectItemDetails chứa thông tin chi tiết về thẻ Kanban
+type ProjectItemDetails struct {
+	ID          string
+	Status      string
+	ContentType string // "Issue" hoặc "PullRequest"
+	Title       string
+	Body        string
+	Number      int
+	ContentID   string
+	RepoOwner   string
+	RepoName    string
+}
+
+// GetProjectV2ItemDetails lấy thông tin chi tiết của một thẻ Kanban qua ID thẻ
+func (c *Client) GetProjectV2ItemDetails(ctx context.Context, itemID string) (*ProjectItemDetails, error) {
+	query := `query($itemId: ID!) {
+		node(id: $itemId) {
+			... on ProjectV2Item {
+				id
+				statusValue: fieldValueByName(name: "Status") {
+					... on ProjectV2ItemFieldSingleSelectValue {
+						name
+					}
+				}
+				content {
+					... on Issue {
+						__typename
+						id
+						title
+						body
+						number
+						repository {
+							name
+							owner {
+								login
+							}
+						}
+					}
+					... on PullRequest {
+						__typename
+						id
+						title
+						body
+						number
+						repository {
+							name
+							owner {
+								login
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	var result struct {
+		Node struct {
+			ID          string `json:"id"`
+			StatusValue struct {
+				Name string `json:"name"`
+			} `json:"statusValue"`
+			Content struct {
+				Typename   string `json:"__typename"`
+				ID         string `json:"id"`
+				Title      string `json:"title"`
+				Body       string `json:"body"`
+				Number     int    `json:"number"`
+				Repository struct {
+					Name  string `json:"name"`
+					Owner struct {
+						Login string `json:"login"`
+					} `json:"owner"`
+				} `json:"repository"`
+			} `json:"content"`
+		} `json:"node"`
+	}
+
+	err := c.queryGraphQL(ctx, query, map[string]interface{}{"itemId": itemID}, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project item details: %w", err)
+	}
+
+	details := &ProjectItemDetails{
+		ID:          result.Node.ID,
+		Status:      result.Node.StatusValue.Name,
+		ContentType: result.Node.Content.Typename,
+		Title:       result.Node.Content.Title,
+		Body:        result.Node.Content.Body,
+		Number:      result.Node.Content.Number,
+		ContentID:   result.Node.Content.ID,
+		RepoOwner:   result.Node.Content.Repository.Owner.Login,
+		RepoName:    result.Node.Content.Repository.Name,
+	}
+
+	return details, nil
+}
