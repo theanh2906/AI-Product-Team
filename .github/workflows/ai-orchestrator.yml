@@ -1,0 +1,33 @@
+name: 🚀 Mini AI Team Go Orchestrator
+
+on:
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  coordinate-ai-team:
+    if: contains(github.event.issue.labels.*.name, 'ai-process')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📑 Checkout Bộ Chỉ Huy Code
+        uses: actions/checkout@v4
+
+      - name: 🐹 Setup Go Environment
+        uses: actions/setup-python@v5
+        with:
+          go-version: "1.25.5" # Hoặc version Go ông đang dùng
+          cache: true
+
+      - name: 🚀 Run Go Agent Orchestrator
+        env:
+          # Truyền các biến cần thiết cho Go app
+          GITHUB_TOKEN: ${{ secrets.TEAM_GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PRODUCT_REPO_NAME: ${{ secrets.REPOSITORY_NAME }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          # Chạy trực tiếp file main của Go
+          go run cmd/main.go
