@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/theanh2906/AI-Product-Team/internal/agent"
+	ghWrapper "github.com/theanh2906/AI-Product-Team/internal/github"
 
 	"github.com/google/go-github/v60/github"
 	"golang.org/x/oauth2"
@@ -27,6 +28,13 @@ func main() {
 
 	// Tên của Repo Sản Phẩm được truyền từ Workflow
 	productRepoName := os.Getenv("PRODUCT_REPO_NAME")
+
+	// Biến môi trường cho Kanban Board
+	projectNumStr := os.Getenv("PROJECT_NUMBER")
+	projectOwner := os.Getenv("PROJECT_OWNER")
+	if projectOwner == "" {
+		projectOwner = owner
+	}
 
 	ctx := context.Background()
 
@@ -134,7 +142,71 @@ func main() {
 		}
 	}
 
-	// 4. Tổng hợp báo cáo Markdown cuối cùng gửi cho ông Ben
+	// 4. TẠO ISSUE CON VÀ LIÊN KẾT VÀO KANBAN BOARD 📋
+	createdIssuesReport := ""
+
+	if projectNumStr != "" {
+		projectNum, err := strconv.Atoi(projectNumStr)
+		if err != nil {
+			fmt.Printf("⚠️ Cảnh báo: PROJECT_NUMBER không hợp lệ (%s): %v\n", projectNumStr, err)
+		} else {
+			fmt.Printf("📋 [Kanban Integration]: Đang khởi tạo kết nối đến Project v2 (#%d) cho owner: %s...\n", projectNum, projectOwner)
+
+			// Khởi tạo wrapper client của chúng ta
+			wrapperClient := ghWrapper.NewClient(githubToken)
+
+			// Lấy Project ID
+			projectID, err := wrapperClient.GetProjectV2ID(ctx, projectOwner, projectNum)
+			if err != nil {
+				fmt.Printf("❌ Không thể lấy Project ID cho Project #%d: %v\n", projectNum, err)
+			} else {
+				fmt.Printf("🎯 Tìm thấy Project ID: %s\n", projectID)
+
+				// Lấy trường Status và Option "Todo"
+				statusFieldID, todoOptionID, err := wrapperClient.GetProjectV2StatusField(ctx, projectID)
+				if err != nil {
+					fmt.Printf("⚠️ Cảnh báo: Không tìm thấy cột Status/Todo trên Board: %v. Các thẻ sẽ được xếp vào cột mặc định.\n", err)
+				}
+
+				createdIssuesReport = "\n### 📋 Trạng thái tạo Tasks & Bảng Kanban bên Repo Sản Phẩm:\n"
+
+				for _, task := range aiResult.Tasks {
+					// 4.1 Tạo Issue mới trên Repo Sản Phẩm
+					issueTitle := fmt.Sprintf("[%s] %s", task.Assignee, task.Title)
+					issueBody := fmt.Sprintf("%s\n\n---\n*Task được phân công cho: %s*\n*Branch dự kiến: `%s`*", task.Description, task.Assignee, task.BranchName)
+
+					issueReq := &github.IssueRequest{
+						Title: github.String(issueTitle),
+						Body:  github.String(issueBody),
+					}
+
+					createdIssue, _, err := ghClient.Issues.Create(ctx, owner, productRepoName, issueReq)
+					if err != nil {
+						createdIssuesReport += fmt.Sprintf("- **%s**: Tạo Issue thất bại (Lỗi: %v) ❌\n", task.Title, err)
+						continue
+					}
+
+					issueNum := createdIssue.GetNumber()
+					issueNodeID := createdIssue.GetNodeID()
+					fmt.Printf("✅ Đã tạo Issue #%d cho task: %s\n", issueNum, task.Title)
+
+					// 4.2 Thêm Issue vào Kanban Board và chuyển sang cột Todo
+					_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, todoOptionID, issueNodeID)
+					if err != nil {
+						createdIssuesReport += fmt.Sprintf("- **%s**: Đã tạo Issue [#%d](https://github.com/%s/%s/issues/%d) nhưng lỗi liên kết Kanban board (Lỗi: %v) ⚠️\n",
+							task.Title, issueNum, owner, productRepoName, issueNum, err)
+					} else {
+						createdIssuesReport += fmt.Sprintf("- **%s**: Khởi tạo Issue [#%d](https://github.com/%s/%s/issues/%d) và thêm vào Kanban Board thành công! ✅\n",
+							task.Title, issueNum, owner, productRepoName, issueNum)
+					}
+				}
+			}
+		}
+	} else {
+		fmt.Println("ℹ️ PROJECT_NUMBER không được cấu hình. Bỏ qua bước tạo Task con trên Kanban Board.")
+	}
+
+	// 5. Tổng hợp báo cáo Markdown cuối cùng gửi cho ông Ben
 	markdownReport := fmt.Sprintf("🤖 **[Team Lead & BA Agent Report]**\n\n### 📑 Phân tích tổng quan:\n%s\n\n### 📋 Danh sách Task phân rã:\n", aiResult.Analysis)
 	for i, task := range aiResult.Tasks {
 		markdownReport += fmt.Sprintf("%d. **[%s]** %s\n", i+1, task.Assignee, task.Title)
@@ -145,6 +217,11 @@ func main() {
 
 	// Nối thêm phần báo cáo trạng thái tạo branch vào đuôi comment
 	markdownReport += createdBranchesReport
+
+	// Nối thêm báo cáo tạo task trên Kanban
+	if createdIssuesReport != "" {
+		markdownReport += createdIssuesReport
+	}
 
 	comment := &github.IssueComment{Body: github.String(markdownReport)}
 	ghClient.Issues.CreateComment(ctx, owner, orchestratorRealName, issueNumber, comment)

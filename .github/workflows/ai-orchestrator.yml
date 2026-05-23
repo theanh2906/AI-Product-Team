@@ -26,6 +26,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PRODUCT_REPO_NAME: ${{ secrets.REPOSITORY_NAME }}
+          PROJECT_NUMBER: ${{ secrets.PROJECT_NUMBER }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
