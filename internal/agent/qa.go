@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -34,6 +35,11 @@ func (qa *QAAgent) RunTests(ctx context.Context, testCommand string) (string, bo
 	cmdArgs := parts[1:]
 
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
+	// Cho phép cấu hình thư mục chạy test (ví dụ: thư mục chứa Repo Sản Phẩm)
+	if testDir := os.Getenv("TEST_DIR"); testDir != "" {
+		cmd.Dir = testDir
+		fmt.Printf("📂 [%s]: Chạy test trong thư mục: %s\n", qa.Name, testDir)
+	}
 
 	// Chạy và gộp cả stdout lẫn stderr
 	output, err := cmd.CombinedOutput()
