@@ -53,7 +53,7 @@ Không sử dụng placeholders hay viết mã lấp lửng; mã nguồn phải 
 
 	prompt := fmt.Sprintf("Hãy giải quyết task sau:\nTiêu đề: %s\nYêu cầu chi tiết:\n%s\n\nTrả về danh sách thay đổi tệp mã nguồn tương ứng.", taskTitle, taskDescription)
 
-	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-review", genai.Text(prompt), &genai.GenerateContentConfig{
+	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{
 				genai.NewPartFromText(systemInstruction),
