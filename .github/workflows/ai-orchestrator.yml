@@ -25,8 +25,8 @@ jobs:
       - name: 🔍 Trích xuất Product Repo từ nhãn
         id: extract_repo
         run: |
-          # Lấy nhãn bắt đầu bằng "repo:" từ event payload
-          REPO_NAME=$(jq -r '.issue.labels[]?.name' "$GITHUB_EVENT_PATH" | grep '^repo:' | sed 's/^repo://' | head -n 1)
+          # Lấy nhãn bắt đầu bằng "repo:" từ event payload (dùng jq thuần để tránh lỗi pipefail khi không có nhãn)
+          REPO_NAME=$(jq -r '.issue.labels[]?.name | select(startswith("repo:")) | sub("^repo:"; "")' "$GITHUB_EVENT_PATH" | head -n 1)
           
           # Nếu không tìm thấy label dạng "repo:", fallback về secret mặc định
           if [ -z "$REPO_NAME" ]; then
