@@ -4,7 +4,7 @@ package agent
 type Task struct {
 	Title       string   `json:"title"`       // Tiêu đề task (ví dụ: "Thiết kế database table Users")
 	Description string   `json:"description"` // Mô tả chi tiết các bước cần làm
-	Assignee    string   `json:"assignee"`    // "DESIGNER" hoặc "FULLSTACK"
+	Assignee    string   `json:"assignee"`    // "Senior Fullstack Engineer"
 	BranchName  string   `json:"branch_name"` // Tên branch dự kiến (ví dụ: "feat/user-db-setup")
 	DependsOn   []string `json:"depends_on"`  // Tên của task trước đó nếu có (để chạy tuần tự)
 }

@@ -106,7 +106,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	systemInstruction := `Bạn là một AI Team Lead kiêm Business Analyst xuất sắc. Nhiệm vụ của bạn là bẻ nhỏ Issue thành các Task kỹ thuật chi tiết dưới dạng JSON.`
+	systemInstruction := `Bạn là một AI Team Lead kiêm Business Analyst xuất sắc (PM). Nhiệm vụ của bạn là bẻ nhỏ Issue thành các Task kỹ thuật chi tiết dưới dạng JSON. Gán tất cả các task phát triển kỹ thuật (assignee) cho "Senior Fullstack Engineer".`
 	prompt := fmt.Sprintf("Hãy phân tích yêu cầu sau đây từ PM Ben:\nTiêu đề: %s\nNội dung chi tiết:\n%s", issueTitle, issueBody)
 
 	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
@@ -488,15 +488,9 @@ func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, git
 	statusNormalized := strings.ToLower(details.Status)
 
 	switch statusNormalized {
-	case "pm":
-		// A. Chạy Team Lead Agent
-		runTeamLeadAgentOnKanban(ctx, ghClient, wrapperClient, geminiAPIKey, details, projectID, statusFieldID, options)
 	case "backlog":
-		// B. Chạy Developer Agent
+		// Chạy Developer Agent (Senior Fullstack Engineer)
 		runDeveloperAgentOnKanban(ctx, ghClient, wrapperClient, geminiAPIKey, details, projectID, statusFieldID, options)
-	case "in qa", "qa":
-		// C. Chạy QA Agent
-		runQAAgentOnKanban(ctx, ghClient, wrapperClient, geminiAPIKey, details, projectID, statusFieldID, options)
 	default:
 		fmt.Printf("ℹ️ [Kanban Router]: Cột '%s' không có hành động tự động. Bỏ qua.\n", details.Status)
 	}
@@ -512,7 +506,7 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 		os.Exit(1)
 	}
 
-	systemInstruction := `Bạn là một AI Team Lead kiêm Business Analyst xuất sắc. Nhiệm vụ của bạn là bẻ nhỏ Issue thành các Task kỹ thuật chi tiết dưới dạng JSON.`
+	systemInstruction := `Bạn là một AI Team Lead kiêm Business Analyst xuất sắc (PM). Nhiệm vụ của bạn là bẻ nhỏ Issue thành các Task kỹ thuật chi tiết dưới dạng JSON. Gán tất cả các task phát triển kỹ thuật (assignee) cho "Senior Fullstack Engineer".`
 	prompt := fmt.Sprintf("Hãy phân tích yêu cầu sau đây từ PM Ben:\nTiêu đề: %s\nNội dung chi tiết:\n%s", details.Title, details.Body)
 
 	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
@@ -675,11 +669,11 @@ func runDeveloperAgentOnKanban(ctx context.Context, ghClient *github.Client, wra
 	// 4. Bình luận báo cáo lên Issue
 	_, _, _ = ghClient.Issues.CreateComment(ctx, details.RepoOwner, details.RepoName, details.Number, &github.IssueComment{Body: github.String(summaryReport)})
 
-	// 5. Chuyển thẻ sang cột "In QA" để kích hoạt bước tiếp theo
-	if inQAColID, ok := options["in qa"]; ok {
-		err = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, inQAColID)
+	// 5. Chuyển thẻ sang cột "Done" để hoàn thành công việc
+	if doneColID, ok := options["done"]; ok {
+		err = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, doneColID)
 		if err == nil {
-			fmt.Println("🎯 Đã chuyển thẻ Kanban sang cột In QA thành công!")
+			fmt.Println("🎯 Đã chuyển thẻ Kanban sang cột Done thành công!")
 		}
 	}
 }
