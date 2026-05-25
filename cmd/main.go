@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,7 +18,41 @@ import (
 	"google.golang.org/genai"
 )
 
+// loadEnv loads environment variables from a local .env file if it exists.
+func loadEnv() {
+	file, err := os.Open(".env")
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			// Strip quotes if present
+			if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
+				val = val[1 : len(val)-1]
+			} else if strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'") {
+				val = val[1 : len(val)-1]
+			}
+			if os.Getenv(key) == "" {
+				os.Setenv(key, val)
+			}
+		}
+	}
+}
+
 func main() {
+	// Load local environment variables from .env if present
+	loadEnv()
+
 	// 1. Lấy các biến môi trường
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
