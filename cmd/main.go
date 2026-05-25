@@ -57,7 +57,7 @@ func main() {
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
 	orchestratorRepo := os.Getenv("GITHUB_REPOSITORY")
-	owner := os.Getenv("GITHUB_REPOSITORY_OWNER")
+	owner := "theanh2906"
 	issueNumStr := os.Getenv("ISSUE_NUMBER")
 	issueBody := os.Getenv("ISSUE_BODY")
 	issueTitle := os.Getenv("ISSUE_TITLE")
@@ -67,10 +67,7 @@ func main() {
 
 	// Biến môi trường cho Kanban Board
 	projectNumStr := os.Getenv("PROJECT_NUMBER")
-	projectOwner := os.Getenv("PROJECT_OWNER")
-	if projectOwner == "" {
-		projectOwner = owner
-	}
+	projectOwner := "theanh2906"
 
 	ctx := context.Background()
 
