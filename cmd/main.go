@@ -66,7 +66,7 @@ func main() {
 	productRepoName := os.Getenv("PRODUCT_REPO_NAME")
 
 	// Biến môi trường cho Kanban Board
-	projectNumStr := os.Getenv("PROJECT_NUMBER")
+	projectNumStr := "3"
 	projectOwner := "theanh2906"
 
 	ctx := context.Background()
@@ -115,7 +115,7 @@ func main() {
 				genai.NewPartFromText(systemInstruction),
 			},
 		},
-		ResponseMIMEType:  "application/json",
+		ResponseMIMEType: "application/json",
 		ResponseSchema: &genai.Schema{
 			Type: genai.TypeObject,
 			Properties: map[string]*genai.Schema{
@@ -515,7 +515,7 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 				genai.NewPartFromText(systemInstruction),
 			},
 		},
-		ResponseMIMEType:  "application/json",
+		ResponseMIMEType: "application/json",
 		ResponseSchema: &genai.Schema{
 			Type: genai.TypeObject,
 			Properties: map[string]*genai.Schema{

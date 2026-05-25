@@ -13,7 +13,6 @@ jobs:
       (github.event.action == 'labeled' && github.event.label.name == 'ai-process') ||
       (github.event.action == 'transferred' && contains(github.event.issue.labels.*.name, 'ai-process'))
     runs-on: ubuntu-latest
-
     steps:
       - name: 📑 Checkout Bộ Chỉ Huy Code
         uses: actions/checkout@v4
@@ -29,12 +28,12 @@ jobs:
         run: |
           # Lấy nhãn bắt đầu bằng "repo:" từ event payload (dùng jq thuần để tránh lỗi pipefail khi không có nhãn)
           REPO_NAME=$(jq -r '.issue.labels[]?.name | select(startswith("repo:")) | sub("^repo:"; "")' "$GITHUB_EVENT_PATH" | head -n 1)
-          
+
           # Nếu không tìm thấy label dạng "repo:", fallback về secret mặc định
           if [ -z "$REPO_NAME" ]; then
             REPO_NAME="${{ secrets.REPOSITORY_NAME }}"
           fi
-          
+
           echo "PRODUCT_REPO=$REPO_NAME" >> $GITHUB_OUTPUT
         shell: bash
 
@@ -45,8 +44,6 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PRODUCT_REPO_NAME: ${{ steps.extract_repo.outputs.PRODUCT_REPO }}
-          PROJECT_NUMBER: ${{ secrets.PROJECT_NUMBER }}
-          PROJECT_OWNER: ${{ secrets.PROJECT_OWNER }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
