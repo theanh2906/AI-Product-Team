@@ -351,7 +351,7 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 				projectNum, _ := strconv.Atoi(projectNumStr)
 				_ = projectNum
 				wrapperClient := ghWrapper.NewClient(githubToken)
-				projectID := "3"
+				projectID := "4"
 				var projErr error
 				if projErr == nil {
 					statusFieldID, options, optErr := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
