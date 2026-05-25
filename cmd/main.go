@@ -203,30 +203,30 @@ func main() {
 			wrapperClient := ghWrapper.NewClient(githubToken)
 
 			// Lấy Project ID
-			projectID := "3"
+			projectID := "4"
 			var err error
 			if err != nil {
 				fmt.Printf("❌ Không thể lấy Project ID cho Project #%d: %v\n", projectNum, err)
 			} else {
 				fmt.Printf("🎯 Tìm thấy Project ID: %s\n", projectID)
 
-				// Lấy trường Status và Option "Backlog"
+				// Lấy trường Status và Option "Todo"
 				statusFieldID, options, err := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
-				var backlogOptionID string
+				var todoOptionID string
 				if err == nil {
-					if id, ok := options["backlog"]; ok {
-						backlogOptionID = id
-					} else if id, ok := options["todo"]; ok {
-						backlogOptionID = id
+					if id, ok := options["todo"]; ok {
+						todoOptionID = id
+					} else if id, ok := options["backlog"]; ok {
+						todoOptionID = id
 					} else if len(options) > 0 {
 						for _, id := range options {
-							backlogOptionID = id
+							todoOptionID = id
 							break
 						}
 					}
 				}
-				if err != nil || backlogOptionID == "" {
-					fmt.Printf("⚠️ Cảnh báo: Không tìm thấy cột Status/Backlog trên Board: %v. Các thẻ sẽ được xếp vào cột mặc định.\n", err)
+				if err != nil || todoOptionID == "" {
+					fmt.Printf("⚠️ Cảnh báo: Không tìm thấy cột Status/Todo trên Board: %v. Các thẻ sẽ được xếp vào cột mặc định.\n", err)
 				}
 
 				createdIssuesReport = "\n### 📋 Trạng thái tạo Tasks & Bảng Kanban bên Repo Sản Phẩm:\n"
@@ -251,8 +251,8 @@ func main() {
 					issueNodeID := createdIssue.GetNodeID()
 					fmt.Printf("✅ Đã tạo Issue #%d cho task: %s\n", issueNum, task.Title)
 
-					// 4.2 Thêm Issue vào Kanban Board và chuyển sang cột Backlog
-					_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, backlogOptionID, issueNodeID)
+					// 4.2 Thêm Issue vào Kanban Board và chuyển sang cột Todo
+					_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, todoOptionID, issueNodeID)
 					if err != nil {
 						createdIssuesReport += fmt.Sprintf("- **%s**: Đã tạo Issue [#%d](https://github.com/%s/%s/issues/%d) nhưng lỗi liên kết Kanban board (Lỗi: %v) ⚠️\n",
 							task.Title, issueNum, owner, productRepoName, issueNum, err)
@@ -358,11 +358,11 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 					if optErr == nil {
 						// Tìm cột mặc định để đưa thẻ Bug vào
 						var targetColID string
-						if id, ok := options["backlog"]; ok {
+						if id, ok := options["todo"]; ok {
+							targetColID = id
+						} else if id, ok := options["backlog"]; ok {
 							targetColID = id
 						} else if id, ok := options["pm"]; ok {
-							targetColID = id
-						} else if id, ok := options["todo"]; ok {
 							targetColID = id
 						}
 
@@ -391,7 +391,7 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 		projectNum, _ := strconv.Atoi(projectNumStr)
 		_ = projectNum
 		wrapperClient := ghWrapper.NewClient(githubToken)
-		projectID := "3"
+		projectID := "4"
 		var err error
 		if err == nil {
 			statusFieldID, options, err := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
@@ -401,9 +401,11 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 				if id, ok := options[targetStatus]; ok {
 					targetColID = id
 				} else if targetStatus == "backlog" {
-					if id, ok := options["pm"]; ok {
+					if id, ok := options["todo"]; ok {
 						targetColID = id
-					} else if id, ok := options["todo"]; ok {
+					} else if id, ok := options["backlog"]; ok {
+						targetColID = id
+					} else if id, ok := options["pm"]; ok {
 						targetColID = id
 					}
 				}
@@ -491,7 +493,7 @@ func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, git
 	fmt.Printf("📊 [Kanban Router]: Thẻ thuộc repo %s/%s, Trạng thái cột hiện tại: '%s'\n", details.RepoOwner, details.RepoName, details.Status)
 
 	// Lấy Project ID
-	projectID := "3"
+	projectID := "4"
 	err = nil
 	if err != nil {
 		fmt.Printf("❌ Lỗi khi lấy Project ID: %v\n", err)
@@ -508,7 +510,7 @@ func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, git
 	statusNormalized := strings.ToLower(details.Status)
 
 	switch statusNormalized {
-	case "backlog":
+	case "backlog", "todo":
 		// Chạy Developer Agent (Senior Fullstack Engineer)
 		runDeveloperAgentOnKanban(ctx, ghClient, wrapperClient, geminiAPIKey, details, projectID, statusFieldID, options)
 	default:
@@ -616,15 +618,17 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 			}
 		}
 
-		// Đưa card con vừa tạo vào cột Backlog
-		var backlogColID string
-		if id, ok := options["backlog"]; ok {
-			backlogColID = id
+		// Đưa card con vừa tạo vào cột Todo/Backlog
+		var targetColID string
+		if id, ok := options["todo"]; ok {
+			targetColID = id
+		} else if id, ok := options["backlog"]; ok {
+			targetColID = id
 		} else if id, ok := options["pm"]; ok {
-			backlogColID = id
+			targetColID = id
 		}
 
-		_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, backlogColID, issueNodeID)
+		_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, targetColID, issueNodeID)
 		if err != nil {
 			createdIssuesReport += fmt.Sprintf("- **%s**: Đã tạo Issue [#%d](https://github.com/%s/%s/issues/%d) nhưng lỗi liên kết Kanban ⚠️\n",
 				task.Title, issueNum, details.RepoOwner, details.RepoName, issueNum, err)
@@ -677,8 +681,15 @@ func runDeveloperAgentOnKanban(ctx context.Context, ghClient *github.Client, wra
 	if err != nil {
 		fmt.Printf("❌ AI Developer lập trình thất bại: %v\n", err)
 		// Trả card về cột Backlog
-		if backlogColID, ok := options["backlog"]; ok {
-			_ = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, backlogColID)
+		// Trả card về cột Todo/Backlog
+		var targetColID string
+		if id, ok := options["todo"]; ok {
+			targetColID = id
+		} else if id, ok := options["backlog"]; ok {
+			targetColID = id
+		}
+		if targetColID != "" {
+			_ = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, targetColID)
 		}
 		// Comment lỗi lên Issue
 		errorComment := fmt.Sprintf("🤖 **[AI Developer Agent Report]**\n\n❌ **Quá trình sinh mã nguồn thất bại!**\n\n*Chi tiết lỗi:* `%v`", err)
@@ -760,9 +771,15 @@ func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperCli
 			bugNodeID := createdBug.GetNodeID()
 			bugLink = fmt.Sprintf("[#%d](https://github.com/%s/%s/issues/%d)", bugNum, details.RepoOwner, details.RepoName, bugNum)
 
-			// Đưa Bug Card vào cột Backlog
-			if backlogColID, ok := options["backlog"]; ok {
-				_, _ = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, backlogColID, bugNodeID)
+			// Đưa Bug Card vào cột Todo/Backlog
+			var targetColID string
+			if id, ok := options["todo"]; ok {
+				targetColID = id
+			} else if id, ok := options["backlog"]; ok {
+				targetColID = id
+			}
+			if targetColID != "" {
+				_, _ = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, targetColID, bugNodeID)
 			}
 		} else {
 			bugLink = "*(Lỗi khi tạo Bug Issue tự động)*"
@@ -775,12 +792,16 @@ func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperCli
 	// Comment lên Issue
 	_, _, _ = ghClient.Issues.CreateComment(ctx, details.RepoOwner, details.RepoName, details.Number, &github.IssueComment{Body: github.String(reportBody)})
 
-	// Cập nhật trạng thái card hiện tại sang Done hoặc trả về Backlog
+	// Cập nhật trạng thái card hiện tại sang Done hoặc trả về Todo/Backlog
 	var targetColID string
 	if id, ok := options[targetStatus]; ok {
 		targetColID = id
 	} else if targetStatus == "backlog" {
-		if id, ok := options["pm"]; ok {
+		if id, ok := options["todo"]; ok {
+			targetColID = id
+		} else if id, ok := options["backlog"]; ok {
+			targetColID = id
+		} else if id, ok := options["pm"]; ok {
 			targetColID = id
 		}
 	}
