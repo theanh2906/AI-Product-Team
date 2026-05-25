@@ -210,10 +210,23 @@ func main() {
 			} else {
 				fmt.Printf("🎯 Tìm thấy Project ID: %s\n", projectID)
 
-				// Lấy trường Status và Option "Todo"
-				statusFieldID, todoOptionID, err := wrapperClient.GetProjectV2StatusField(ctx, projectID)
-				if err != nil {
-					fmt.Printf("⚠️ Cảnh báo: Không tìm thấy cột Status/Todo trên Board: %v. Các thẻ sẽ được xếp vào cột mặc định.\n", err)
+				// Lấy trường Status và Option "Backlog"
+				statusFieldID, options, err := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
+				var backlogOptionID string
+				if err == nil {
+					if id, ok := options["backlog"]; ok {
+						backlogOptionID = id
+					} else if id, ok := options["todo"]; ok {
+						backlogOptionID = id
+					} else if len(options) > 0 {
+						for _, id := range options {
+							backlogOptionID = id
+							break
+						}
+					}
+				}
+				if err != nil || backlogOptionID == "" {
+					fmt.Printf("⚠️ Cảnh báo: Không tìm thấy cột Status/Backlog trên Board: %v. Các thẻ sẽ được xếp vào cột mặc định.\n", err)
 				}
 
 				createdIssuesReport = "\n### 📋 Trạng thái tạo Tasks & Bảng Kanban bên Repo Sản Phẩm:\n"
@@ -238,8 +251,8 @@ func main() {
 					issueNodeID := createdIssue.GetNodeID()
 					fmt.Printf("✅ Đã tạo Issue #%d cho task: %s\n", issueNum, task.Title)
 
-					// 4.2 Thêm Issue vào Kanban Board và chuyển sang cột Todo
-					_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, todoOptionID, issueNodeID)
+					// 4.2 Thêm Issue vào Kanban Board và chuyển sang cột Backlog
+					_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, backlogOptionID, issueNodeID)
 					if err != nil {
 						createdIssuesReport += fmt.Sprintf("- **%s**: Đã tạo Issue [#%d](https://github.com/%s/%s/issues/%d) nhưng lỗi liên kết Kanban board (Lỗi: %v) ⚠️\n",
 							task.Title, issueNum, owner, productRepoName, issueNum, err)
