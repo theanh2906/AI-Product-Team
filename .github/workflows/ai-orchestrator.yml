@@ -46,6 +46,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PRODUCT_REPO_NAME: ${{ steps.extract_repo.outputs.PRODUCT_REPO }}
           PROJECT_NUMBER: ${{ secrets.PROJECT_NUMBER }}
+          PROJECT_OWNER: ${{ secrets.PROJECT_OWNER }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
