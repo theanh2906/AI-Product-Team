@@ -4,6 +4,9 @@ on:
   issues:
     types: [opened, labeled]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   coordinate-ai-team:
     if: contains(github.event.issue.labels.*.name, 'ai-process')
@@ -12,11 +15,6 @@ jobs:
     steps:
       - name: 📑 Checkout Bộ Chỉ Huy Code
         uses: actions/checkout@v4
-
-      - name: 🟢 Setup Node.js Environment
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
 
       - name: 🐹 Setup Go Environment
         uses: actions/setup-go@v5
