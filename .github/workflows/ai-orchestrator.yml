@@ -2,14 +2,16 @@ name: 🚀 Mini AI Team Go Orchestrator
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled, transferred]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   coordinate-ai-team:
-    if: contains(github.event.issue.labels.*.name, 'ai-process')
+    if: |
+      (github.event.action == 'labeled' && github.event.label.name == 'ai-process') ||
+      (github.event.action == 'transferred' && contains(github.event.issue.labels.*.name, 'ai-process'))
     runs-on: ubuntu-latest
 
     steps:
