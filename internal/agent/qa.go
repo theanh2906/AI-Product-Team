@@ -10,21 +10,21 @@ import (
 	"google.golang.org/genai"
 )
 
-// QAAgent đại diện cho tác nhân QA chuyên chạy test và chẩn đoán lỗi
+// QAAgent represents the QA agent specialized in running tests and diagnosing failures
 type QAAgent struct {
 	Name string
 }
 
-// NewQAAgent khởi tạo QA Agent mới
+// NewQAAgent initializes a new QA Agent
 func NewQAAgent() *QAAgent {
 	return &QAAgent{
 		Name: "QA-Agent",
 	}
 }
 
-// RunTests chạy lệnh kiểm thử và trả về logs cùng kết quả (pass/fail)
+// RunTests runs the test command and returns the logs along with the result (pass/fail)
 func (qa *QAAgent) RunTests(ctx context.Context, testCommand string) (string, bool, error) {
-	fmt.Printf("🧪 [%s]: Bắt đầu chạy test suite với lệnh: %s\n", qa.Name, testCommand)
+	fmt.Printf(" [%s]: Starting test suite with command: %s\n", qa.Name, testCommand)
 
 	parts := strings.Fields(testCommand)
 	if len(parts) == 0 {
@@ -35,38 +35,38 @@ func (qa *QAAgent) RunTests(ctx context.Context, testCommand string) (string, bo
 	cmdArgs := parts[1:]
 
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
-	// Cho phép cấu hình thư mục chạy test (ví dụ: thư mục chứa Repo Sản Phẩm)
+	// Allow configuring the test directory (e.g. the directory containing the Product Repo)
 	if testDir := os.Getenv("TEST_DIR"); testDir != "" {
 		cmd.Dir = testDir
-		fmt.Printf("📂 [%s]: Chạy test trong thư mục: %s\n", qa.Name, testDir)
+		fmt.Printf(" [%s]: Running tests in directory: %s\n", qa.Name, testDir)
 	}
 
-	// Chạy và gộp cả stdout lẫn stderr
+	// Run and combine both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	outputStr := string(output)
 
 	if err != nil {
-		fmt.Printf("❌ [%s]: Test suite thất bại!\n", qa.Name)
+		fmt.Printf("❌ [%s]: Test suite failed!\n", qa.Name)
 		return outputStr, false, nil
 	}
 
-	fmt.Printf("✅ [%s]: Test suite chạy thành công!\n", qa.Name)
+	fmt.Printf("✅ [%s]: Test suite ran successfully!\n", qa.Name)
 	return outputStr, true, nil
 }
 
-// DiagnoseFailure sử dụng Gemini SDK để phân tích log lỗi và đề xuất hướng sửa đổi
+// DiagnoseFailure uses the Gemini SDK to analyze error logs and suggest fixes
 func (qa *QAAgent) DiagnoseFailure(ctx context.Context, geminiAPIKey string, testLog string, taskTitle string) (string, error) {
-	fmt.Printf("🧠 [%s]: Đang gửi test log qua Gemini để phân tích chẩn đoán lỗi...\n", qa.Name)
+	fmt.Printf(" [%s]: Sending test log to Gemini for failure diagnosis...\n", qa.Name)
 
 	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
 	if err != nil {
 		return "", fmt.Errorf("failed to create Gemini client: %w", err)
 	}
 
-	systemInstruction := `Bạn là một AI QA Engineer xuất sắc, chuyên gia về kiểm thử và gỡ lỗi phần mềm. 
-Nhiệm vụ của bạn là đọc log lỗi kiểm thử (test failure log) từ hệ thống CI/CD, phân tích nguyên nhân tại sao test lại thất bại, chỉ ra các file/dòng code nghi ngờ gây lỗi và đề xuất giải pháp sửa lỗi chi tiết, dễ hiểu cho lập trình viên.`
+	systemInstruction := `You are an outstanding AI QA Engineer, an expert in software testing and debugging.
+Your task is to read the test failure log from the CI/CD system, analyze why the tests failed, identify the suspicious files/lines of code causing the failure, and suggest detailed, easy-to-understand fix solutions for the developer.`
 
-	prompt := fmt.Sprintf("Dưới đây là thông tin task đang kiểm thử và log lỗi:\nTask: %s\n\nLog lỗi kiểm thử:\n%s\n\nHãy phân tích và trả về một báo cáo sửa lỗi chi tiết dưới dạng Markdown.", taskTitle, testLog)
+	prompt := fmt.Sprintf("Below is the task information under test and the failure log:\nTask: %s\n\nTest failure log:\n%s\n\nPlease analyze and return a detailed bug fix report in Markdown format.", taskTitle, testLog)
 
 	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{

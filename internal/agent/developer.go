@@ -13,45 +13,45 @@ import (
 	"google.golang.org/genai"
 )
 
-// FileChange đại diện cho một thay đổi file (tạo mới hoặc chỉnh sửa) do AI quyết định
+// FileChange represents a file change (create or edit) decided by the AI
 type FileChange struct {
-	Path    string `json:"path"`    // Đường dẫn tương đối từ gốc dự án, ví dụ "src/main.go"
-	Content string `json:"content"` // Nội dung toàn bộ file mới/đã chỉnh sửa
+	Path    string `json:"path"`    // Relative path from the project root, e.g. "src/main.go"
+	Content string `json:"content"` // Full content of the new/edited file
 }
 
-// DeveloperResponse là cấu trúc phản hồi từ Gemini chứa giải thích và các thay đổi file
+// DeveloperResponse is the response structure from Gemini containing the explanation and file changes
 type DeveloperResponse struct {
 	Explanation string       `json:"explanation"`
 	Changes     []FileChange `json:"changes"`
 }
 
-// Developer đại diện cho AI Developer Agent
+// Developer represents the AI Developer Agent
 type Developer struct {
 	Name string
 }
 
-// NewDeveloper khởi tạo Developer Agent mới
+// NewDeveloper initializes a new Developer Agent
 func NewDeveloper() *Developer {
 	return &Developer{
 		Name: "Developer-Agent",
 	}
 }
 
-// DevelopTask thực hiện phân tích task, tự động viết code, tạo branch, commit, push và mở PR
+// DevelopTask analyzes the task, auto-writes code, creates a branch, commits, pushes and opens a PR
 func (d *Developer) DevelopTask(ctx context.Context, ghClient *github.Client, geminiAPIKey string, owner, repo string, issueNumber int, taskTitle string, taskDescription string, productRepoDir string, branchName string) (string, error) {
-	fmt.Printf("💻 [%s]: Đang nghiên cứu task #%d: '%s'...\n", d.Name, issueNumber, taskTitle)
+	fmt.Printf(" [%s]: Researching task #%d: '%s'...\n", d.Name, issueNumber, taskTitle)
 
-	// 1. Gọi Gemini SDK để sinh mã nguồn
+	// 1. Call Gemini SDK to generate source code
 	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
 	if err != nil {
 		return "", fmt.Errorf("failed to create Gemini client: %w", err)
 	}
 
-	systemInstruction := `Bạn là một Senior Fullstack Engineer có kỹ năng viết mã nguồn tuyệt vời, sạch sẽ và tối ưu.
-Nhiệm vụ của bạn là đọc yêu cầu phát triển hoặc mô tả lỗi (bug report), thiết kế các tệp mã nguồn cần thay đổi, và trả về toàn bộ danh sách các tệp cùng nội dung tương ứng của chúng dưới định dạng JSON theo schema được cung cấp.
-Không sử dụng placeholders hay viết mã lấp lửng; mã nguồn phải chạy được luôn và hoàn chỉnh.`
+	systemInstruction := `You are a Senior Fullstack Engineer with excellent skills in writing clean and optimized code.
+Your task is to read the development requirement or bug report, design the source files that need to be changed, and return the complete list of files along with their corresponding content in JSON format according to the provided schema.
+Do not use placeholders or write stub code; the source code must be immediately runnable and complete.`
 
-	prompt := fmt.Sprintf("Hãy giải quyết task sau:\nTiêu đề: %s\nYêu cầu chi tiết:\n%s\n\nTrả về danh sách thay đổi tệp mã nguồn tương ứng.", taskTitle, taskDescription)
+	prompt := fmt.Sprintf("Please resolve the following task:\nTitle: %s\nDetailed requirements:\n%s\n\nReturn the list of corresponding source file changes.", taskTitle, taskDescription)
 
 	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
@@ -88,26 +88,26 @@ Không sử dụng placeholders hay viết mã lấp lửng; mã nguồn phải 
 		return "", fmt.Errorf("failed to parse Gemini response: %w, raw response: %s", err, resp.Text())
 	}
 
-	fmt.Printf("📋 [%s]: Giải thích giải pháp: %s\n", d.Name, devResult.Explanation)
-	fmt.Printf("🛠️ [%s]: Nhận thấy %d tệp cần ghi/sửa đổi. Bắt đầu xử lý Git branch: %s...\n", d.Name, len(devResult.Changes), branchName)
+	fmt.Printf(" [%s]: Solution explanation: %s\n", d.Name, devResult.Explanation)
+	fmt.Printf("️ [%s]: Detected %d file(s) to write/modify. Starting Git branch processing: %s...\n", d.Name, len(devResult.Changes), branchName)
 
-	// 2. Thao tác Git: Tạo và checkout sang branch mới
+	// 2. Git operations: Create and checkout a new branch
 	if err := runGitCommand(productRepoDir, "checkout", "main"); err != nil {
-		// Thử checkout master nếu main không tồn tại
+		// Try checking out master if main does not exist
 		_ = runGitCommand(productRepoDir, "checkout", "master")
 	}
-	// Xóa branch cũ nếu có từ trước để tạo mới tinh
+	// Delete old branch if it exists from a previous run to create a fresh one
 	_ = runGitCommand(productRepoDir, "branch", "-D", branchName)
 	if err := runGitCommand(productRepoDir, "checkout", "-b", branchName); err != nil {
 		return "", fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
 	}
 
-	// 3. Ghi các file đã sinh ra đĩa
+	// 3. Write the generated files to disk
 	for _, change := range devResult.Changes {
-		// Tránh ghi ra ngoài thư mục Repo Product (bảo mật)
+		// Prevent writing outside the Product Repo directory (security)
 		cleanPath := filepath.Clean(change.Path)
 		if strings.HasPrefix(cleanPath, "..") || filepath.IsAbs(cleanPath) {
-			fmt.Printf("⚠️ Warning: Bỏ qua tệp ngoài phạm vi: %s\n", change.Path)
+			fmt.Printf("⚠️ Warning: Skipping file outside scope: %s\n", change.Path)
 			continue
 		}
 
@@ -119,7 +119,7 @@ Không sử dụng placeholders hay viết mã lấp lửng; mã nguồn phải 
 		if err := os.WriteFile(filePath, []byte(change.Content), 0644); err != nil {
 			return "", fmt.Errorf("failed to write file %s: %w", filePath, err)
 		}
-		fmt.Printf("💾 [%s]: Ghi thành công tệp: %s\n", d.Name, change.Path)
+		fmt.Printf(" [%s]: Successfully wrote file: %s\n", d.Name, change.Path)
 	}
 
 	// 4. Commit & Push code
@@ -128,24 +128,24 @@ Không sử dụng placeholders hay viết mã lấp lửng; mã nguồn phải 
 	}
 	commitMsg := fmt.Sprintf("feat: implement task #%d - %s", issueNumber, taskTitle)
 	if err := runGitCommand(productRepoDir, "commit", "-m", commitMsg); err != nil {
-		// Có thể không có thay đổi (nothing to commit)
-		fmt.Printf("ℹ️ Không có thay đổi nào để commit hoặc git commit lỗi nhẹ: %v\n", err)
+		// There may be no changes to commit
+		fmt.Printf("ℹ️ No changes to commit or minor git commit error: %v\n", err)
 	}
 
-	// Push branch lên remote (sử dụng -f để ghi đè nếu chạy lại)
+	// Push branch to remote (use -f to overwrite if re-running)
 	if err := runGitCommand(productRepoDir, "push", "origin", branchName, "-f"); err != nil {
 		return "", fmt.Errorf("failed to git push branch %s: %w", branchName, err)
 	}
-	fmt.Printf("🚀 [%s]: Đã push code thành công lên branch %s!\n", d.Name, branchName)
+	fmt.Printf(" [%s]: Code successfully pushed to branch %s!\n", d.Name, branchName)
 
-	// 5. Tạo Pull Request trên GitHub
+	// 5. Create Pull Request on GitHub
 	prTitle := fmt.Sprintf("PR for Task #%d: %s", issueNumber, taskTitle)
-	prBody := fmt.Sprintf("## 🤖 AI Developer Agent Pull Request\n\nTask liên quan: #%d\n\n### 📑 Giải thích thay đổi:\n%s", issueNumber, devResult.Explanation)
-	
+	prBody := fmt.Sprintf("##  AI Developer Agent Pull Request\n\nRelated Task: #%d\n\n###  Change Explanation:\n%s", issueNumber, devResult.Explanation)
+
 	newPR := &github.NewPullRequest{
 		Title: github.String(prTitle),
 		Head:  github.String(branchName),
-		Base:  github.String("main"), // Thường base sẽ là main/master
+		Base:  github.String("main"), // Base is usually main/master
 		Body:  github.String(prBody),
 	}
 
@@ -153,30 +153,30 @@ Không sử dụng placeholders hay viết mã lấp lửng; mã nguồn phải 
 	var prLink string
 	if prErr != nil {
 		if strings.Contains(prErr.Error(), "A pull request already exists") {
-			// PR đã tồn tại từ trước, tìm PR hiện tại
+			// PR already exists from a previous run, find the current PR
 			prs, _, _ := ghClient.PullRequests.List(ctx, owner, repo, &github.PullRequestListOptions{
 				Head: owner + ":" + branchName,
 			})
 			if len(prs) > 0 {
 				prLink = prs[0].GetHTMLURL()
-				fmt.Printf("ℹ️ PR đã tồn tại từ trước: %s\n", prLink)
+				fmt.Printf("ℹ️ PR already exists: %s\n", prLink)
 			} else {
-				prLink = "*(Đã tồn tại Pull Request)*"
+				prLink = "*(Pull Request already exists)*"
 			}
 		} else {
-			fmt.Printf("⚠️ Cảnh báo: Không thể tạo PR: %v\n", prErr)
-			prLink = "*(Không thể tự động tạo PR, bạn có thể tự tạo thủ công)*"
+			fmt.Printf("⚠️ Warning: Failed to create PR: %v\n", prErr)
+			prLink = "*(Failed to automatically create PR, you can create it manually)*"
 		}
 	} else {
 		prLink = pr.GetHTMLURL()
-		fmt.Printf("✅ [%s]: Tạo thành công Pull Request: %s\n", d.Name, prLink)
+		fmt.Printf("✅ [%s]: Pull Request created successfully: %s\n", d.Name, prLink)
 	}
 
-	summaryReport := fmt.Sprintf("🤖 **[AI Developer Agent Report]**\n\n- **Branch phát triển:** `%s`\n- **Giải thích:** %s\n- **Pull Request:** %s", branchName, devResult.Explanation, prLink)
+	summaryReport := fmt.Sprintf(" **[AI Developer Agent Report]**\n\n- **Development branch:** `%s`\n- **Explanation:** %s\n- **Pull Request:** %s", branchName, devResult.Explanation, prLink)
 	return summaryReport, nil
 }
 
-// runGitCommand thực thi một lệnh Git trong thư mục chỉ định
+// runGitCommand executes a Git command in the specified directory
 func runGitCommand(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir

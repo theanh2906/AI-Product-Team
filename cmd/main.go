@@ -53,7 +53,7 @@ func main() {
 	// Load local environment variables from .env if present
 	loadEnv()
 
-	// 1. Lấy các biến môi trường
+	// 1. Retrieve environment variables
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
 	orchestratorRepo := os.Getenv("GITHUB_REPOSITORY")
@@ -62,16 +62,16 @@ func main() {
 	issueBody := os.Getenv("ISSUE_BODY")
 	issueTitle := os.Getenv("ISSUE_TITLE")
 
-	// Tên của Repo Sản Phẩm được truyền từ Workflow
+	// Product Repo name passed from the Workflow
 	productRepoName := os.Getenv("PRODUCT_REPO_NAME")
 
-	// Biến môi trường cho Kanban Board
-	projectNumStr := "3"
+	// Environment variables for Kanban Board
+	projectNumStr := os.Getenv("PROJECT_NUMBER")
 	projectOwner := "theanh2906"
 
 	ctx := context.Background()
 
-	// Khởi tạo GitHub Client
+	// Initialize GitHub Client
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: githubToken})
 	tc := oauth2.NewClient(ctx, ts)
 	ghClient := github.NewClient(tc)
@@ -84,30 +84,30 @@ func main() {
 	}
 	issueNumber, _ := strconv.Atoi(issueNumStr)
 
-	// 1.2 Kiểm tra chạy chế độ State-Machine hướng Kanban (PROJECT_ITEM_ID)
+	// 1.2 Check if running in Kanban State-Machine mode (PROJECT_ITEM_ID)
 	projectItemID := os.Getenv("PROJECT_ITEM_ID")
 	if projectItemID != "" {
 		runKanbanStateMachineFlow(ctx, ghClient, githubToken, geminiAPIKey, projectItemID, projectNumStr, projectOwner)
 		return
 	}
 
-	// 1.1 Kiểm tra chế độ chạy (Orchestrator Mode)
+	// 1.1 Check run mode (Orchestrator Mode)
 	orchestratorMode := strings.ToLower(os.Getenv("ORCHESTRATOR_MODE"))
 	if orchestratorMode == "qa" {
 		runQAAgentFlow(ctx, ghClient, githubToken, geminiAPIKey, owner, productRepoName, orchestratorRealName, issueNumber, issueTitle, projectNumStr, projectOwner)
 		return
 	}
 
-	// 2. Gọi "Bộ Não" Gemini (Giữ nguyên phần cấu hình Schema ở lượt trước)
-	fmt.Println("🧠 [Team Lead Agent]: Đang gửi Context qua Gemini để phân tích...")
+	// 2. Call Gemini "Brain" (Keep schema configuration from previous round)
+	fmt.Println(" [Team Lead Agent]: Sending context to Gemini for analysis...")
 	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
 	if err != nil {
-		fmt.Printf("❌ Không thể tạo Gemini Client: %v\n", err)
+		fmt.Printf("❌ Failed to create Gemini Client: %v\n", err)
 		os.Exit(1)
 	}
 
-	systemInstruction := `Bạn là một AI Team Lead kiêm Business Analyst xuất sắc (PM). Nhiệm vụ của bạn là bẻ nhỏ Issue thành các Task kỹ thuật chi tiết dưới dạng JSON. Gán tất cả các task phát triển kỹ thuật (assignee) cho "Senior Fullstack Engineer".`
-	prompt := fmt.Sprintf("Hãy phân tích yêu cầu sau đây từ PM Ben:\nTiêu đề: %s\nNội dung chi tiết:\n%s", issueTitle, issueBody)
+	systemInstruction := `You are an outstanding AI Team Lead and Business Analyst (PM). Your task is to break down Issues into detailed technical Tasks in JSON format. Assign all technical development tasks (assignee) to "Senior Fullstack Engineer".`
+	prompt := fmt.Sprintf("Please analyze the following request from PM Ben:\nTitle: %s\nDetailed content:\n%s", issueTitle, issueBody)
 
 	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
@@ -137,7 +137,7 @@ func main() {
 		},
 	})
 	if err != nil {
-		fmt.Printf("❌ Gemini gọi lỗi: %v\n", err)
+		fmt.Printf("❌ Gemini call error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -145,29 +145,29 @@ func main() {
 	rawJSON := resp.Text()
 	json.Unmarshal([]byte(rawJSON), &aiResult)
 
-	// 3. TẠO BRANCH TỰ ĐỘNG BÊN REPO SẢN PHẨM 🌿
-	fmt.Printf("🌿 [Team Lead Agent]: Bắt đầu khởi tạo các Branch bên Repo: %s...\n", productRepoName)
+	// 3. AUTOMATICALLY CREATE BRANCHES IN THE PRODUCT REPO
+	fmt.Printf(" [Team Lead Agent]: Starting to initialize branches in Repo: %s...\n", productRepoName)
 
-	// 3.1 Thường mặc định gốc sẽ là branch 'main'
+	// 3.1 The default base branch is 'main'
 	defaultBranch := "main"
 
-	// 3.2 Lấy thông tin (Mã SHA) của branch main hiện tại bên Repo Sản Phẩm để làm gốc
+	// 3.2 Get the SHA of the current main branch in the Product Repo to use as the base
 	ref, _, err := ghClient.Repositories.GetBranch(ctx, owner, productRepoName, defaultBranch, 0)
 	if err != nil {
-		fmt.Printf("❌ Không lấy được thông tin branch %s của Repo sản phẩm: %v. Hãy chắc chắn tên repo đúng và repo không trống.\n", defaultBranch, err)
+		fmt.Printf("❌ Failed to get branch %s info from Product Repo: %v. Make sure the repo name is correct and the repo is not empty.\n", defaultBranch, err)
 		os.Exit(1)
 	}
 	baseSHA := ref.GetCommit().GetSHA()
-	fmt.Printf("🎯 Mã SHA gốc của branch %s là: %s\n", defaultBranch, baseSHA)
+	fmt.Printf(" Base SHA of branch %s is: %s\n", defaultBranch, baseSHA)
 
-	// 3.3 Duyệt mảng task để tạo từng Branch tương ứng
-	createdBranchesReport := "\n### 🌿 Trạng thái khởi tạo Git Branches bên Repo Sản Phẩm:\n"
+	// 3.3 Iterate through the task array to create each corresponding branch
+	createdBranchesReport := "\n###  Git Branch Initialization Status in Product Repo:\n"
 
 	for _, task := range aiResult.Tasks {
-		// Chuẩn hóa tên branch (xóa khoảng trắng nếu AI lỡ tạo sai quy tắc)
+		// Normalize branch name (remove spaces if the AI accidentally creates an invalid name)
 		cleanBranchName := strings.ReplaceAll(task.BranchName, " ", "-")
 
-		// Định nghĩa cấu trúc Ref trên GitHub (bắt buộc phải có tiền tố "refs/heads/")
+		// Define the Ref structure on GitHub (must have the "refs/heads/" prefix)
 		refString := fmt.Sprintf("refs/heads/%s", cleanBranchName)
 
 		newRef := &github.Reference{
@@ -175,66 +175,59 @@ func main() {
 			Object: &github.GitObject{SHA: github.String(baseSHA)},
 		}
 
-		// Gọi API GitHub tạo branch mới
+		// Call GitHub API to create a new branch
 		_, _, err := ghClient.Git.CreateRef(ctx, owner, productRepoName, newRef)
 		if err != nil {
-			// Nếu branch đã tồn tại từ trước (lần chạy cũ), chúng ta ghi nhận lại chứ không làm crash hệ thống
+			// If the branch already exists (from a previous run), we log it instead of crashing the system
 			if strings.Contains(err.Error(), "already exists") {
-				createdBranchesReport += fmt.Sprintf("- `🌿 %s`: Trùng tên (Đã tồn tại từ trước) ⚠️\n", cleanBranchName)
+				createdBranchesReport += fmt.Sprintf("- ` %s`: Duplicate name (Already exists) ⚠️\n", cleanBranchName)
 			} else {
-				createdBranchesReport += fmt.Sprintf("- `🌿 %s`: Tạo thất bại (Lỗi: %v) ❌\n", cleanBranchName, err)
+				createdBranchesReport += fmt.Sprintf("- ` %s`: Creation failed (Error: %v) ❌\n", cleanBranchName, err)
 			}
 		} else {
-			createdBranchesReport += fmt.Sprintf("- `🌿 %s`: Khởi tạo thành công cho **[%s]** ✅\n", cleanBranchName, task.Assignee)
+			createdBranchesReport += fmt.Sprintf("- ` %s`: Successfully initialized for **[%s]** ✅\n", cleanBranchName, task.Assignee)
 		}
 	}
 
-	// 4. TẠO ISSUE CON VÀ LIÊN KẾT VÀO KANBAN BOARD 📋
+	// 4. CREATE CHILD ISSUES AND LINK TO KANBAN BOARD
 	createdIssuesReport := ""
 
 	if projectNumStr != "" {
 		projectNum, err := strconv.Atoi(projectNumStr)
 		if err != nil {
-			fmt.Printf("⚠️ Cảnh báo: PROJECT_NUMBER không hợp lệ (%s): %v\n", projectNumStr, err)
+			fmt.Printf("⚠️ Warning: PROJECT_NUMBER is invalid (%s): %v\n", projectNumStr, err)
 		} else {
-			fmt.Printf("📋 [Kanban Integration]: Đang khởi tạo kết nối đến Project v2 (#%d) cho owner: %s...\n", projectNum, projectOwner)
+			fmt.Printf(" [Kanban Integration]: Initializing connection to Project v2 (#%d) for owner: %s...\n", projectNum, projectOwner)
 
-			// Khởi tạo wrapper client của chúng ta
+			// Initialize our wrapper client
 			wrapperClient := ghWrapper.NewClient(githubToken)
 
-			// Lấy Project ID
+			// Get Project ID
 			projectID := "4"
 			var err error
 			if err != nil {
-				fmt.Printf("❌ Không thể lấy Project ID cho Project #%d: %v\n", projectNum, err)
+				fmt.Printf("❌ Failed to get Project ID for Project #%d: %v\n", projectNum, err)
 			} else {
-				fmt.Printf("🎯 Tìm thấy Project ID: %s\n", projectID)
+				fmt.Printf(" Found Project ID: %s\n", projectID)
 
-				// Lấy trường Status và Option "Todo"
+				// Get Status field and "Todo" option
 				statusFieldID, options, err := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
 				var todoOptionID string
 				if err == nil {
-					if id, ok := options["todo"]; ok {
+					if id, ok := ghWrapper.GetTodoStatusOptionID(options); ok {
 						todoOptionID = id
-					} else if id, ok := options["backlog"]; ok {
-						todoOptionID = id
-					} else if len(options) > 0 {
-						for _, id := range options {
-							todoOptionID = id
-							break
-						}
 					}
 				}
 				if err != nil || todoOptionID == "" {
-					fmt.Printf("⚠️ Cảnh báo: Không tìm thấy cột Status/Todo trên Board: %v. Các thẻ sẽ được xếp vào cột mặc định.\n", err)
+					fmt.Printf("⚠️ Warning: Status/Todo column not found on Board: %v. Cards will be placed in the default column.\n", err)
 				}
 
-				createdIssuesReport = "\n### 📋 Trạng thái tạo Tasks & Bảng Kanban bên Repo Sản Phẩm:\n"
+				createdIssuesReport = "\n###  Task Creation & Kanban Board Status in Product Repo:\n"
 
 				for _, task := range aiResult.Tasks {
-					// 4.1 Tạo Issue mới trên Repo Sản Phẩm
+					// 4.1 Create a new Issue in the Product Repo
 					issueTitle := fmt.Sprintf("[%s] %s", task.Assignee, task.Title)
-					issueBody := fmt.Sprintf("%s\n\n---\n*Task được phân công cho: %s*\n*Branch dự kiến: `%s`*", task.Description, task.Assignee, task.BranchName)
+					issueBody := fmt.Sprintf("%s\n\n---\n*Task assigned to: %s*\n*Expected branch: `%s`*", task.Description, task.Assignee, task.BranchName)
 
 					issueReq := &github.IssueRequest{
 						Title: github.String(issueTitle),
@@ -243,43 +236,43 @@ func main() {
 
 					createdIssue, _, err := ghClient.Issues.Create(ctx, owner, productRepoName, issueReq)
 					if err != nil {
-						createdIssuesReport += fmt.Sprintf("- **%s**: Tạo Issue thất bại (Lỗi: %v) ❌\n", task.Title, err)
+						createdIssuesReport += fmt.Sprintf("- **%s**: Issue creation failed (Error: %v) ❌\n", task.Title, err)
 						continue
 					}
 
 					issueNum := createdIssue.GetNumber()
 					issueNodeID := createdIssue.GetNodeID()
-					fmt.Printf("✅ Đã tạo Issue #%d cho task: %s\n", issueNum, task.Title)
+					fmt.Printf("✅ Created Issue #%d for task: %s\n", issueNum, task.Title)
 
-					// 4.2 Thêm Issue vào Kanban Board và chuyển sang cột Todo
+					// 4.2 Add Issue to Kanban Board and move to Todo column
 					_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, todoOptionID, issueNodeID)
 					if err != nil {
-						createdIssuesReport += fmt.Sprintf("- **%s**: Đã tạo Issue [#%d](https://github.com/%s/%s/issues/%d) nhưng lỗi liên kết Kanban board (Lỗi: %v) ⚠️\n",
+						createdIssuesReport += fmt.Sprintf("- **%s**: Issue [#%d](https://github.com/%s/%s/issues/%d) created but failed to link to Kanban board (Error: %v) ⚠️\n",
 							task.Title, issueNum, owner, productRepoName, issueNum, err)
 					} else {
-						createdIssuesReport += fmt.Sprintf("- **%s**: Khởi tạo Issue [#%d](https://github.com/%s/%s/issues/%d) và thêm vào Kanban Board thành công! ✅\n",
+						createdIssuesReport += fmt.Sprintf("- **%s**: Issue [#%d](https://github.com/%s/%s/issues/%d) created and added to Kanban Board successfully! ✅\n",
 							task.Title, issueNum, owner, productRepoName, issueNum)
 					}
 				}
 			}
 		}
 	} else {
-		fmt.Println("ℹ️ PROJECT_NUMBER không được cấu hình. Bỏ qua bước tạo Task con trên Kanban Board.")
+		fmt.Println("ℹ️ PROJECT_NUMBER is not configured. Skipping child Task creation on Kanban Board.")
 	}
 
-	// 5. Tổng hợp báo cáo Markdown cuối cùng gửi cho ông Ben
-	markdownReport := fmt.Sprintf("🤖 **[Team Lead & BA Agent Report]**\n\n### 📑 Phân tích tổng quan:\n%s\n\n### 📋 Danh sách Task phân rã:\n", aiResult.Analysis)
+	// 5. Compile the final Markdown report to send to Ben
+	markdownReport := fmt.Sprintf(" **[Team Lead & BA Agent Report]**\n\n###  Overall Analysis:\n%s\n\n###  Breakdown Task List:\n", aiResult.Analysis)
 	for i, task := range aiResult.Tasks {
 		markdownReport += fmt.Sprintf("%d. **[%s]** %s\n", i+1, task.Assignee, task.Title)
-		markdownReport += fmt.Sprintf("   - *Mô tả:* %s\n", task.Description)
+		markdownReport += fmt.Sprintf("   - *Description:* %s\n", task.Description)
 		markdownReport += fmt.Sprintf("   - *Branch:* `%s`\n", task.BranchName)
 		markdownReport += "\n"
 	}
 
-	// Nối thêm phần báo cáo trạng thái tạo branch vào đuôi comment
+	// Append the branch creation status report to the comment
 	markdownReport += createdBranchesReport
 
-	// Nối thêm báo cáo tạo task trên Kanban
+	// Append the Kanban task creation report
 	if createdIssuesReport != "" {
 		markdownReport += createdIssuesReport
 	}
@@ -287,48 +280,48 @@ func main() {
 	comment := &github.IssueComment{Body: github.String(markdownReport)}
 	ghClient.Issues.CreateComment(ctx, owner, orchestratorRealName, issueNumber, comment)
 
-	fmt.Println("🎉 Hoàn tất toàn bộ chu trình khởi tạo của Team Lead!")
+	fmt.Println(" Team Lead initialization cycle completed successfully!")
 }
 
-// runQAAgentFlow điều phối luồng chạy kiểm thử của QA Agent
+// runQAAgentFlow orchestrates the QA Agent test execution flow
 func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, geminiAPIKey, owner, productRepoName, orchestratorRealName string, issueNumber int, issueTitle string, projectNumStr, projectOwner string) {
-	fmt.Println("🧪 [QA Agent]: Đang khởi chạy chế độ kiểm thử...")
+	fmt.Println(" [QA Agent]: Starting test mode...")
 
-	// 1. Lấy cấu hình lệnh test (Mặc định go test ./...)
+	// 1. Get test command configuration (Default: go test ./...)
 	testCommand := os.Getenv("TEST_COMMAND")
 	if testCommand == "" {
 		testCommand = "go test ./..."
 	}
 
-	// 2. Chạy QA Agent để thực thi test suite
+	// 2. Run QA Agent to execute the test suite
 	qaAgent := agent.NewQAAgent()
 	testLog, pass, err := qaAgent.RunTests(ctx, testCommand)
 	if err != nil {
-		fmt.Printf("❌ Lỗi khi chạy test: %v\n", err)
+		fmt.Printf("❌ Error running tests: %v\n", err)
 		os.Exit(1)
 	}
 
 	var reportBody string
-	var targetStatus string // "done" hoặc "backlog"
+	var targetStatus string // "done" or "backlog"
 
-	// 3. Xử lý kết quả test
+	// 3. Process test results
 	if pass {
 		// Test Passed
-		reportBody = fmt.Sprintf("🤖 **[AI QA Agent Report]**\n\n✅ **Kiểm thử THÀNH CÔNG! (QA Passed)**\n\n- **Lệnh chạy:** `%s`\n\n### 🖥️ Chi tiết log kiểm thử:\n```text\n%s\n```", testCommand, testLog)
+		reportBody = fmt.Sprintf(" **[AI QA Agent Report]**\n\n✅ **Tests PASSED! (QA Passed)**\n\n- **Command:** `%s`\n\n### ️ Test Log Details:\n```text\n%s\n```", testCommand, testLog)
 		targetStatus = "done"
 	} else {
-		// Test Failed -> Gọi Gemini chẩn đoán lỗi
+		// Test Failed -> Call Gemini for failure diagnosis
 		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, geminiAPIKey, testLog, issueTitle)
 		if diagErr != nil {
-			fmt.Printf("⚠️ Cảnh báo: Không thể gọi Gemini chẩn đoán lỗi: %v\n", diagErr)
-			diagnosis = "*(Không thể lấy phân tích chẩn đoán lỗi tự động từ Gemini)*"
+			fmt.Printf("⚠️ Warning: Failed to call Gemini for failure diagnosis: %v\n", diagErr)
+			diagnosis = "*(Could not retrieve automatic failure diagnosis from Gemini)*"
 		}
 
-		// 3.1 Tạo Issue báo lỗi mới (như mong muốn của User)
+		// 3.1 Create a new bug report Issue
 		bugTitle := fmt.Sprintf("[QA Failed] Bug found: %s", issueTitle)
-		bugBody := fmt.Sprintf("## ❌ Phát hiện lỗi trong quá trình kiểm thử tự động\n\n**Task liên quan:** #%d\n**Lệnh kiểm thử:** `%s`\n\n### 📑 Phân tích lỗi từ AI QA:\n%s\n\n### 🖥️ Chi tiết log kiểm thử:\n```text\n%s\n```", issueNumber, testCommand, diagnosis, testLog)
+		bugBody := fmt.Sprintf("## ❌ Bug detected during automated testing\n\n**Related Task:** #%d\n**Test Command:** `%s`\n\n###  AI QA Failure Analysis:\n%s\n\n### ️ Test Log Details:\n```text\n%s\n```", issueNumber, testCommand, diagnosis, testLog)
 
-		fmt.Printf("📋 [QA Agent]: Đang tạo Bug Issue trên Repo: %s...\n", productRepoName)
+		fmt.Printf(" [QA Agent]: Creating Bug Issue in Repo: %s...\n", productRepoName)
 		bugReq := &github.IssueRequest{
 			Title:  github.String(bugTitle),
 			Body:   github.String(bugBody),
@@ -338,15 +331,15 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 		createdBug, _, createBugErr := ghClient.Issues.Create(ctx, owner, productRepoName, bugReq)
 		var bugIssueLink string
 		if createBugErr != nil {
-			fmt.Printf("❌ Không thể tạo Bug Issue trên GitHub: %v\n", createBugErr)
-			bugIssueLink = "*(Lỗi khi tạo Bug Issue tự động)*"
+			fmt.Printf("❌ Failed to create Bug Issue on GitHub: %v\n", createBugErr)
+			bugIssueLink = "*(Error creating automatic Bug Issue)*"
 		} else {
 			bugNum := createdBug.GetNumber()
 			bugNodeID := createdBug.GetNodeID()
 			bugIssueLink = fmt.Sprintf("[#%d](https://github.com/%s/%s/issues/%d)", bugNum, owner, productRepoName, bugNum)
-			fmt.Printf("✅ Đã tạo Bug Issue #%d thành công!\n", bugNum)
+			fmt.Printf("✅ Bug Issue #%d created successfully!\n", bugNum)
 
-			// 3.2 Liên kết Bug Issue này vào Kanban Board (cột đầu tiên như Backlog/PM)
+			// 3.2 Link this Bug Issue to the Kanban Board (first column like Backlog/PM)
 			if projectNumStr != "" {
 				projectNum, _ := strconv.Atoi(projectNumStr)
 				_ = projectNum
@@ -356,37 +349,33 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 				if projErr == nil {
 					statusFieldID, options, optErr := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
 					if optErr == nil {
-						// Tìm cột mặc định để đưa thẻ Bug vào
+						// Find the default column to place the Bug card
 						var targetColID string
-						if id, ok := options["todo"]; ok {
-							targetColID = id
-						} else if id, ok := options["backlog"]; ok {
-							targetColID = id
-						} else if id, ok := options["pm"]; ok {
+						if id, ok := ghWrapper.GetTodoStatusOptionID(options); ok {
 							targetColID = id
 						}
 
 						if targetColID != "" {
 							_, _ = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, targetColID, bugNodeID)
-							fmt.Printf("🎯 Đã liên kết thẻ Bug vào bảng Kanban ở cột khởi đầu.\n")
+							fmt.Printf(" Bug card linked to Kanban board in the initial column.\n")
 						}
 					}
 				}
 			}
 		}
 
-		reportBody = fmt.Sprintf("🤖 **[AI QA Agent Report]**\n\n❌ **Kiểm thử THẤT BẠI! (QA Failed)**\n\n- **Lệnh chạy:** `%s`\n- **Bug Issue được tạo:** %s\n\n### 📑 Phân tích lỗi từ AI:\n%s\n\n<details>\n<summary>Xem chi tiết log kiểm thử</summary>\n\n```text\n%s\n```\n\n</details>", testCommand, bugIssueLink, diagnosis, testLog)
+		reportBody = fmt.Sprintf(" **[AI QA Agent Report]**\n\n❌ **Tests FAILED! (QA Failed)**\n\n- **Command:** `%s`\n- **Bug Issue created:** %s\n\n###  AI Failure Analysis:\n%s\n\n<details>\n<summary>View test log details</summary>\n\n```text\n%s\n```\n\n</details>", testCommand, bugIssueLink, diagnosis, testLog)
 		targetStatus = "backlog"
 	}
 
-	// 4. Comment báo cáo lên PR/Issue hiện tại
+	// 4. Post the report as a comment on the current PR/Issue
 	comment := &github.IssueComment{Body: github.String(reportBody)}
 	_, _, commentErr := ghClient.Issues.CreateComment(ctx, owner, orchestratorRealName, issueNumber, comment)
 	if commentErr != nil {
-		fmt.Printf("❌ Không thể bình luận báo cáo QA lên GitHub: %v\n", commentErr)
+		fmt.Printf("❌ Failed to post QA report comment on GitHub: %v\n", commentErr)
 	}
 
-	// 5. Cập nhật trạng thái Kanban card của Task/PR gốc (nếu có Kanban)
+	// 5. Update the Kanban card status of the original Task/PR (if Kanban is configured)
 	if projectNumStr != "" {
 		projectNum, _ := strconv.Atoi(projectNumStr)
 		_ = projectNum
@@ -396,36 +385,32 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 		if err == nil {
 			statusFieldID, options, err := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
 			if err == nil {
-				// Tìm ID của cột đích tương ứng
+				// Find the ID of the target column
 				var targetColID string
 				if id, ok := options[targetStatus]; ok {
 					targetColID = id
 				} else if targetStatus == "backlog" {
-					if id, ok := options["todo"]; ok {
-						targetColID = id
-					} else if id, ok := options["backlog"]; ok {
-						targetColID = id
-					} else if id, ok := options["pm"]; ok {
+					if id, ok := ghWrapper.GetTodoStatusOptionID(options); ok {
 						targetColID = id
 					}
 				}
 
 				if targetColID != "" {
-					// Lấy Node ID của Issue/PR gốc để tìm Item ID tương ứng trên Kanban
+					// Get the Node ID of the original Issue/PR to find its corresponding Kanban Item ID
 					refIssue, _, err := ghClient.Issues.Get(ctx, owner, orchestratorRealName, issueNumber)
 					if err == nil {
 						issueNodeID := refIssue.GetNodeID()
 						itemID, err := wrapperClient.GetProjectV2ItemIDByContentID(ctx, projectID, issueNodeID)
 						if err == nil {
-							// Di chuyển card sang cột tương ứng
+							// Move the card to the corresponding column
 							err = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, itemID, statusFieldID, targetColID)
 							if err == nil {
-								fmt.Printf("🎯 Đã chuyển trạng thái Task gốc sang: %s\n", targetStatus)
+								fmt.Printf(" Original Task status moved to: %s\n", targetStatus)
 							} else {
-								fmt.Printf("❌ Không thể cập nhật trạng thái Task trên Kanban: %v\n", err)
+								fmt.Printf("❌ Failed to update Task status on Kanban: %v\n", err)
 							}
 						} else {
-							fmt.Printf("⚠️ Cảnh báo: Không tìm thấy Kanban Item cho Task hiện tại: %v\n", err)
+							fmt.Printf("⚠️ Warning: Kanban Item not found for the current Task: %v\n", err)
 						}
 					}
 				}
@@ -433,10 +418,10 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 		}
 	}
 
-	fmt.Println("🎉 Hoàn tất chu trình kiểm thử của QA Agent!")
+	fmt.Println(" QA Agent test cycle completed!")
 }
 
-// runGitCommand thực thi lệnh git trong thư mục chỉ định
+// runGitCommand executes a git command in the specified directory
 func runGitCommand(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
@@ -447,7 +432,7 @@ func runGitCommand(dir string, args ...string) error {
 	return nil
 }
 
-// sanitizeBranchName chuẩn hóa tên branch theo công thức: task-<issue_number>-<sanitized_title>
+// sanitizeBranchName normalizes the branch name using the formula: task-<issue_number>-<sanitized_title>
 func sanitizeBranchName(title string) string {
 	title = strings.ToLower(title)
 	var sb strings.Builder
@@ -459,51 +444,51 @@ func sanitizeBranchName(title string) string {
 		}
 	}
 	res := sb.String()
-	// Thay thế nhiều dấu gạch ngang liên tiếp bằng một dấu
+	// Replace multiple consecutive hyphens with a single one
 	for strings.Contains(res, "--") {
 		res = strings.ReplaceAll(res, "--", "-")
 	}
 	return strings.Trim(res, "-")
 }
 
-// runKanbanStateMachineFlow điều hướng luồng chạy dựa trên trạng thái của thẻ Kanban
+// runKanbanStateMachineFlow routes the execution flow based on the Kanban card status
 func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, githubToken, geminiAPIKey, projectItemID string, projectNumStr, projectOwner string) {
-	fmt.Printf("🗂️ [Kanban Router]: Kích hoạt State-Machine cho thẻ ID: %s\n", projectItemID)
+	fmt.Printf("️ [Kanban Router]: Activating State-Machine for card ID: %s\n", projectItemID)
 
 	if projectNumStr == "" {
-		fmt.Println("❌ Lỗi: PROJECT_NUMBER không được cấu hình.")
+		fmt.Println("❌ Error: PROJECT_NUMBER is not configured.")
 		os.Exit(1)
 	}
 	projectNum, err := strconv.Atoi(projectNumStr)
 	_ = projectNum
 	if err != nil {
-		fmt.Printf("❌ Lỗi: PROJECT_NUMBER không hợp lệ: %v\n", err)
+		fmt.Printf("❌ Error: PROJECT_NUMBER is invalid: %v\n", err)
 		os.Exit(1)
 	}
 
 	wrapperClient := ghWrapper.NewClient(githubToken)
 
-	// 1. Lấy thông tin chi tiết thẻ
+	// 1. Get card details
 	details, err := wrapperClient.GetProjectV2ItemDetails(ctx, projectItemID)
 	if err != nil {
-		fmt.Printf("❌ Lỗi khi lấy thông tin thẻ Kanban: %v\n", err)
+		fmt.Printf("❌ Error retrieving Kanban card details: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("📊 [Kanban Router]: Thẻ thuộc repo %s/%s, Trạng thái cột hiện tại: '%s'\n", details.RepoOwner, details.RepoName, details.Status)
+	fmt.Printf(" [Kanban Router]: Card belongs to repo %s/%s, current column status: '%s'\n", details.RepoOwner, details.RepoName, details.Status)
 
-	// Lấy Project ID
+	// Get Project ID
 	projectID := "4"
 	err = nil
 	if err != nil {
-		fmt.Printf("❌ Lỗi khi lấy Project ID: %v\n", err)
+		fmt.Printf("❌ Error getting Project ID: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Lấy danh sách các cột trên board
+	// Get the list of columns on the board
 	statusFieldID, options, err := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
 	if err != nil {
-		fmt.Printf("❌ Lỗi khi lấy Status Options: %v\n", err)
+		fmt.Printf("❌ Error getting Status Options: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -511,25 +496,25 @@ func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, git
 
 	switch statusNormalized {
 	case "backlog", "todo":
-		// Chạy Developer Agent (Senior Fullstack Engineer)
+		// Run Developer Agent (Senior Fullstack Engineer)
 		runDeveloperAgentOnKanban(ctx, ghClient, wrapperClient, geminiAPIKey, details, projectID, statusFieldID, options)
 	default:
-		fmt.Printf("ℹ️ [Kanban Router]: Cột '%s' không có hành động tự động. Bỏ qua.\n", details.Status)
+		fmt.Printf("ℹ️ [Kanban Router]: Column '%s' has no automated action. Skipping.\n", details.Status)
 	}
 }
 
-// runTeamLeadAgentOnKanban xử lý khi thẻ ở cột PM: phân rã thành tasks con và đưa vào Backlog
+// runTeamLeadAgentOnKanban handles when the card is in the PM column: breaks it into child tasks and puts them in Backlog
 func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, geminiAPIKey string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
-	fmt.Println("🧠 [Team Lead Agent]: Phân tích yêu cầu và bẻ nhỏ task...")
+	fmt.Println(" [Team Lead Agent]: Analyzing requirements and breaking down tasks...")
 
 	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
 	if err != nil {
-		fmt.Printf("❌ Không thể tạo Gemini Client: %v\n", err)
+		fmt.Printf("❌ Failed to create Gemini Client: %v\n", err)
 		os.Exit(1)
 	}
 
-	systemInstruction := `Bạn là một AI Team Lead kiêm Business Analyst xuất sắc (PM). Nhiệm vụ của bạn là bẻ nhỏ Issue thành các Task kỹ thuật chi tiết dưới dạng JSON. Gán tất cả các task phát triển kỹ thuật (assignee) cho "Senior Fullstack Engineer".`
-	prompt := fmt.Sprintf("Hãy phân tích yêu cầu sau đây từ PM Ben:\nTiêu đề: %s\nNội dung chi tiết:\n%s", details.Title, details.Body)
+	systemInstruction := `You are an outstanding AI Team Lead and Business Analyst (PM). Your task is to break down Issues into detailed technical Tasks in JSON format. Assign all technical development tasks (assignee) to "Senior Fullstack Engineer".`
+	prompt := fmt.Sprintf("Please analyze the following request from PM Ben:\nTitle: %s\nDetailed content:\n%s", details.Title, details.Body)
 
 	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
@@ -559,14 +544,14 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 		},
 	})
 	if err != nil {
-		fmt.Printf("❌ Gemini gọi lỗi: %v\n", err)
+		fmt.Printf("❌ Gemini call error: %v\n", err)
 		os.Exit(1)
 	}
 
 	var aiResult agent.AIResponse
 	json.Unmarshal([]byte(resp.Text()), &aiResult)
 
-	// Lấy SHA của nhánh main để làm gốc tạo branch
+	// Get the SHA of the main branch to use as the base for branch creation
 	defaultBranch := "main"
 	ref, _, err := ghClient.Repositories.GetBranch(ctx, details.RepoOwner, details.RepoName, defaultBranch, 0)
 	var baseSHA string
@@ -574,11 +559,11 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 		baseSHA = ref.GetCommit().GetSHA()
 	}
 
-	createdBranchesReport := "\n### 🌿 Trạng thái khởi tạo Git Branches bên Repo Sản Phẩm:\n"
-	createdIssuesReport := "\n### 📋 Trạng thái tạo Tasks & Bảng Kanban bên Repo Sản Phẩm:\n"
+	createdBranchesReport := "\n###  Git Branch Initialization Status in Product Repo:\n"
+	createdIssuesReport := "\n###  Task Creation & Kanban Board Status in Product Repo:\n"
 
 	for _, task := range aiResult.Tasks {
-		// Tạo Issue mới
+		// Create new Issue
 		issueTitle := fmt.Sprintf("[%s] %s", task.Assignee, task.Title)
 		issueReq := &github.IssueRequest{
 			Title: github.String(issueTitle),
@@ -587,23 +572,23 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 
 		createdIssue, _, err := ghClient.Issues.Create(ctx, details.RepoOwner, details.RepoName, issueReq)
 		if err != nil {
-			createdIssuesReport += fmt.Sprintf("- **%s**: Tạo Issue thất bại (Lỗi: %v) ❌\n", task.Title, err)
+			createdIssuesReport += fmt.Sprintf("- **%s**: Issue creation failed (Error: %v) ❌\n", task.Title, err)
 			continue
 		}
 
 		issueNum := createdIssue.GetNumber()
 		issueNodeID := createdIssue.GetNodeID()
 
-		// Sinh tên branch chuẩn hóa: task-<number>-<title>
+		// Generate normalized branch name: task-<number>-<title>
 		cleanBranchName := sanitizeBranchName(fmt.Sprintf("task-%d-%s", issueNum, task.Title))
 
-		// Cập nhật lại mô tả Issue cho đầy đủ
-		updatedBody := fmt.Sprintf("%s\n\n---\n*Task được phân công cho: %s*\n*Branch dự kiến: `%s`*", task.Description, task.Assignee, cleanBranchName)
+		// Update the Issue description to be complete
+		updatedBody := fmt.Sprintf("%s\n\n---\n*Task assigned to: %s*\n*Expected branch: `%s`*", task.Description, task.Assignee, cleanBranchName)
 		_, _, _ = ghClient.Issues.Edit(ctx, details.RepoOwner, details.RepoName, issueNum, &github.IssueRequest{
 			Body: github.String(updatedBody),
 		})
 
-		// Tạo branch trên GitHub
+		// Create branch on GitHub
 		if baseSHA != "" {
 			refString := fmt.Sprintf("refs/heads/%s", cleanBranchName)
 			newRef := &github.Reference{
@@ -612,34 +597,30 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 			}
 			_, _, err = ghClient.Git.CreateRef(ctx, details.RepoOwner, details.RepoName, newRef)
 			if err != nil {
-				createdBranchesReport += fmt.Sprintf("- `🌿 %s`: Tạo thất bại hoặc đã tồn tại ⚠️\n", cleanBranchName)
+				createdBranchesReport += fmt.Sprintf("- ` %s`: Creation failed or already exists ⚠️\n", cleanBranchName)
 			} else {
-				createdBranchesReport += fmt.Sprintf("- `🌿 %s`: Khởi tạo thành công cho **[%s]** ✅\n", cleanBranchName, task.Assignee)
+				createdBranchesReport += fmt.Sprintf("- ` %s`: Successfully initialized for **[%s]** ✅\n", cleanBranchName, task.Assignee)
 			}
 		}
 
-		// Đưa card con vừa tạo vào cột Todo/Backlog
+		// Place the newly created child card into the Todo/Backlog column
 		var targetColID string
-		if id, ok := options["todo"]; ok {
-			targetColID = id
-		} else if id, ok := options["backlog"]; ok {
-			targetColID = id
-		} else if id, ok := options["pm"]; ok {
+		if id, ok := ghWrapper.GetTodoStatusOptionID(options); ok {
 			targetColID = id
 		}
 
 		_, err = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, targetColID, issueNodeID)
 		if err != nil {
-			createdIssuesReport += fmt.Sprintf("- **%s**: Đã tạo Issue [#%d](https://github.com/%s/%s/issues/%d) nhưng lỗi liên kết Kanban ⚠️\n",
+			createdIssuesReport += fmt.Sprintf("- **%s**: Issue [#%d](https://github.com/%s/%s/issues/%d) created but failed to link to Kanban (Error: %v) ⚠️\n",
 				task.Title, issueNum, details.RepoOwner, details.RepoName, issueNum, err)
 		} else {
-			createdIssuesReport += fmt.Sprintf("- **%s**: Khởi tạo Issue [#%d](https://github.com/%s/%s/issues/%d) và thêm vào cột Backlog thành công! ✅\n",
+			createdIssuesReport += fmt.Sprintf("- **%s**: Issue [#%d](https://github.com/%s/%s/issues/%d) created and added to Backlog column successfully! ✅\n",
 				task.Title, issueNum, details.RepoOwner, details.RepoName, issueNum)
 		}
 	}
 
-	// Đóng gói báo cáo gửi lên comment của Issue gốc
-	markdownReport := fmt.Sprintf("🤖 **[Team Lead & BA Agent Report]**\n\n### 📑 Phân tích tổng quan:\n%s\n\n### 📋 Danh sách Task phân rã:\n", aiResult.Analysis)
+	// Package the report and post it as a comment on the original Issue
+	markdownReport := fmt.Sprintf(" **[Team Lead & BA Agent Report]**\n\n###  Overall Analysis:\n%s\n\n###  Breakdown Task List:\n", aiResult.Analysis)
 	for i, task := range aiResult.Tasks {
 		markdownReport += fmt.Sprintf("%d. **[%s]** %s\n", i+1, task.Assignee, task.Title)
 	}
@@ -648,72 +629,69 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 	comment := &github.IssueComment{Body: github.String(markdownReport)}
 	_, _, _ = ghClient.Issues.CreateComment(ctx, details.RepoOwner, details.RepoName, details.Number, comment)
 
-	// Chuyển thẻ PM gốc sang cột "In progress"
+	// Move the original PM card to the "In progress" column
 	if inProgressColID, ok := options["in progress"]; ok {
 		_ = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, inProgressColID)
 	}
 
-	fmt.Println("🎉 Hoàn tất chu trình phân rã task của Team Lead!")
+	fmt.Println(" Team Lead task breakdown cycle completed!")
 }
 
-// runDeveloperAgentOnKanban xử lý khi thẻ ở cột Backlog: tự động code và mở PR, chuyển sang In QA
+// runDeveloperAgentOnKanban handles when the card is in the Backlog column: auto-codes and opens a PR, moves to In QA
 func runDeveloperAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, geminiAPIKey string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
-	fmt.Println("💻 [Developer Agent]: Nhận task và bắt đầu phát triển mã nguồn...")
+	fmt.Println(" [Developer Agent]: Received task and starting code development...")
 
-	// 1. Xác định thư mục chạy code của Product
+	// 1. Determine the product code directory
 	productRepoDir := os.Getenv("TEST_DIR")
 	if productRepoDir == "" {
 		productRepoDir = "."
 	}
 
-	// 2. Chuyển thẻ Kanban sang "In progress" trước để thông báo đang làm việc
+	// 2. Move Kanban card to "In progress" to signal work has started
 	if inProgressColID, ok := options["in progress"]; ok {
 		_ = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, inProgressColID)
 	}
 
-	// Sinh tên branch chuẩn hóa đồng bộ với Kanban Item: task-<number>-<title>
+	// Generate normalized branch name in sync with Kanban Item: task-<number>-<title>
 	branchName := sanitizeBranchName(fmt.Sprintf("task-%d-%s", details.Number, details.Title))
 
-	// 3. Khởi chạy AI Developer để lập trình
+	// 3. Launch AI Developer to write code
 	devAgent := agent.NewDeveloper()
 	summaryReport, err := devAgent.DevelopTask(ctx, ghClient, geminiAPIKey, details.RepoOwner, details.RepoName, details.Number, details.Title, details.Body, productRepoDir, branchName)
 
 	if err != nil {
-		fmt.Printf("❌ AI Developer lập trình thất bại: %v\n", err)
-		// Trả card về cột Backlog
-		// Trả card về cột Todo/Backlog
+		fmt.Printf("❌ AI Developer coding failed: %v\n", err)
+		// Return card to Backlog/Todo column
 		var targetColID string
-		if id, ok := options["todo"]; ok {
-			targetColID = id
-		} else if id, ok := options["backlog"]; ok {
+		if id, ok := ghWrapper.GetTodoStatusOptionID(options); ok {
 			targetColID = id
 		}
 		if targetColID != "" {
 			_ = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, targetColID)
 		}
-		// Comment lỗi lên Issue
-		errorComment := fmt.Sprintf("🤖 **[AI Developer Agent Report]**\n\n❌ **Quá trình sinh mã nguồn thất bại!**\n\n*Chi tiết lỗi:* `%v`", err)
+		// Post error comment on Issue
+		errorComment := fmt.Sprintf(" **[AI Developer Agent Report]**\n\n❌ **Code generation process failed!**\n\n*Error details:* `%v`", err)
 		_, _, _ = ghClient.Issues.CreateComment(ctx, details.RepoOwner, details.RepoName, details.Number, &github.IssueComment{Body: github.String(errorComment)})
 		return
 	}
 
-	// 4. Bình luận báo cáo lên Issue
+	// 4. Post the report as a comment on the Issue
 	_, _, _ = ghClient.Issues.CreateComment(ctx, details.RepoOwner, details.RepoName, details.Number, &github.IssueComment{Body: github.String(summaryReport)})
 
-	// 5. Chuyển thẻ sang cột "Done" để hoàn thành công việc
+	// 5. Move card to "Done" column to complete the work
 	if doneColID, ok := options["done"]; ok {
 		err = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, doneColID)
 		if err == nil {
-			fmt.Println("🎯 Đã chuyển thẻ Kanban sang cột Done thành công!")
+			fmt.Println(" Kanban card successfully moved to Done column!")
 		}
 	}
 }
 
-// runQAAgentOnKanban xử lý khi thẻ ở cột In QA: tự động test và cập nhật cột hoặc tạo bug
+// runQAAgentOnKanban handles when the card is in the In QA column: auto-tests, updates column or creates bug
 func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, geminiAPIKey string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
-	fmt.Println("🧪 [QA Agent]: Bắt đầu chạy test suite kiểm định...")
+	fmt.Println(" [QA Agent]: Starting test suite execution...")
 
-	// 1. Xác định thư mục chạy code của Product
+	// 1. Determine the product code directory
 	productRepoDir := os.Getenv("TEST_DIR")
 	if productRepoDir == "" {
 		productRepoDir = "."
@@ -724,20 +702,20 @@ func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperCli
 		testCommand = "go test ./..."
 	}
 
-	// Sinh tên branch tương ứng
+	// Generate corresponding branch name
 	branchName := sanitizeBranchName(fmt.Sprintf("task-%d-%s", details.Number, details.Title))
 
-	// Checkout sang branch tương ứng trước khi chạy test
-	fmt.Printf("🌿 [QA Agent]: Checkout sang branch: %s\n", branchName)
+	// Checkout to the corresponding branch before running tests
+	fmt.Printf(" [QA Agent]: Checking out branch: %s\n", branchName)
 	if err := runGitCommand(productRepoDir, "checkout", branchName); err != nil {
-		fmt.Printf("⚠️ Cảnh báo: Không thể checkout sang branch %s: %v. Sẽ chạy test trên nhánh hiện tại.\n", branchName, err)
+		fmt.Printf("⚠️ Warning: Failed to checkout branch %s: %v. Tests will run on the current branch.\n", branchName, err)
 	}
 
-	// 2. Chạy test
+	// 2. Run tests
 	qaAgent := agent.NewQAAgent()
 	testLog, pass, err := qaAgent.RunTests(ctx, testCommand)
 	if err != nil {
-		fmt.Printf("❌ Lỗi hệ thống khi chạy test suite: %v\n", err)
+		fmt.Printf("❌ System error running test suite: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -745,18 +723,18 @@ func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperCli
 	var targetStatus string
 
 	if pass {
-		reportBody = fmt.Sprintf("🤖 **[AI QA Agent Report]**\n\n✅ **Kiểm thử THÀNH CÔNG! (QA Passed)**\n\n- **Lệnh chạy:** `%s`\n- **Branch kiểm thử:** `%s`\n\n### 🖥️ Chi tiết log kiểm thử:\n```text\n%s\n```", testCommand, branchName, testLog)
+		reportBody = fmt.Sprintf(" **[AI QA Agent Report]**\n\n✅ **Tests PASSED! (QA Passed)**\n\n- **Command:** `%s`\n- **Test branch:** `%s`\n\n### ️ Test Log Details:\n```text\n%s\n```", testCommand, branchName, testLog)
 		targetStatus = "done"
 	} else {
-		// Gọi Gemini phân tích log lỗi
+		// Call Gemini to analyze the failure log
 		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, geminiAPIKey, testLog, details.Title)
 		if diagErr != nil {
-			diagnosis = "*(Không thể lấy phân tích chẩn đoán lỗi tự động từ Gemini)*"
+			diagnosis = "*(Could not retrieve automatic failure diagnosis from Gemini)*"
 		}
 
-		// Tạo Bug Issue mới và xếp vào Kanban
+		// Create a new Bug Issue and add to Kanban
 		bugTitle := fmt.Sprintf("[QA Failed] Bug found: %s", details.Title)
-		bugBody := fmt.Sprintf("## ❌ Phát hiện lỗi trong quá trình kiểm thử tự động\n\n**Task liên quan:** #%d\n**Lệnh kiểm thử:** `%s`\n**Branch kiểm thử:** `%s`\n\n### 📑 Phân tích lỗi từ AI QA:\n%s\n\n### 🖥️ Chi tiết log kiểm thử:\n```text\n%s\n```", details.Number, testCommand, branchName, diagnosis, testLog)
+		bugBody := fmt.Sprintf("## ❌ Bug detected during automated testing\n\n**Related Task:** #%d\n**Test Command:** `%s`\n**Test Branch:** `%s`\n\n###  AI QA Failure Analysis:\n%s\n\n### ️ Test Log Details:\n```text\n%s\n```", details.Number, testCommand, branchName, diagnosis, testLog)
 
 		bugReq := &github.IssueRequest{
 			Title:  github.String(bugTitle),
@@ -771,43 +749,37 @@ func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperCli
 			bugNodeID := createdBug.GetNodeID()
 			bugLink = fmt.Sprintf("[#%d](https://github.com/%s/%s/issues/%d)", bugNum, details.RepoOwner, details.RepoName, bugNum)
 
-			// Đưa Bug Card vào cột Todo/Backlog
+			// Place Bug Card in the Todo/Backlog column
 			var targetColID string
-			if id, ok := options["todo"]; ok {
-				targetColID = id
-			} else if id, ok := options["backlog"]; ok {
+			if id, ok := ghWrapper.GetTodoStatusOptionID(options); ok {
 				targetColID = id
 			}
 			if targetColID != "" {
 				_, _ = wrapperClient.CreateKanbanCardByIssueNodeID(ctx, projectID, statusFieldID, targetColID, bugNodeID)
 			}
 		} else {
-			bugLink = "*(Lỗi khi tạo Bug Issue tự động)*"
+			bugLink = "*(Error creating automatic Bug Issue)*"
 		}
 
-		reportBody = fmt.Sprintf("🤖 **[AI QA Agent Report]**\n\n❌ **Kiểm thử THẤT BẠI! (QA Failed)**\n\n- **Lệnh chạy:** `%s`\n- **Branch kiểm thử:** `%s`\n- **Bug Issue được tạo:** %s\n\n### 📑 Phân tích lỗi từ AI:\n%s\n\n<details>\n<summary>Xem chi tiết log kiểm thử</summary>\n\n```text\n%s\n```\n\n</details>", testCommand, branchName, bugLink, diagnosis, testLog)
+		reportBody = fmt.Sprintf(" **[AI QA Agent Report]**\n\n❌ **Tests FAILED! (QA Failed)**\n\n- **Command:** `%s`\n- **Test branch:** `%s`\n- **Bug Issue created:** %s\n\n###  AI Failure Analysis:\n%s\n\n<details>\n<summary>View test log details</summary>\n\n```text\n%s\n```\n\n</details>", testCommand, branchName, bugLink, diagnosis, testLog)
 		targetStatus = "backlog"
 	}
 
-	// Comment lên Issue
+	// Post comment on Issue
 	_, _, _ = ghClient.Issues.CreateComment(ctx, details.RepoOwner, details.RepoName, details.Number, &github.IssueComment{Body: github.String(reportBody)})
 
-	// Cập nhật trạng thái card hiện tại sang Done hoặc trả về Todo/Backlog
+	// Update the current card status to Done or return to Todo/Backlog
 	var targetColID string
 	if id, ok := options[targetStatus]; ok {
 		targetColID = id
 	} else if targetStatus == "backlog" {
-		if id, ok := options["todo"]; ok {
-			targetColID = id
-		} else if id, ok := options["backlog"]; ok {
-			targetColID = id
-		} else if id, ok := options["pm"]; ok {
+		if id, ok := ghWrapper.GetTodoStatusOptionID(options); ok {
 			targetColID = id
 		}
 	}
 
 	if targetColID != "" {
 		_ = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, targetColID)
-		fmt.Printf("🎯 Đã cập nhật trạng thái thẻ Kanban hiện tại sang: %s\n", targetStatus)
+		fmt.Printf(" Current Kanban card status updated to: %s\n", targetStatus)
 	}
 }

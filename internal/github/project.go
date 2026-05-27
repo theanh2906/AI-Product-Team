@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -35,6 +36,36 @@ type ProjectField struct {
 	ID      string               `json:"id"`
 	Name    string               `json:"name"`
 	Options []ProjectFieldOption `json:"options,omitempty"`
+}
+
+var todoStatusOptionPriorities = []string{"todo", "to do", "new", "backlog", "pm"}
+
+// GetTodoStatusOptionID chọn option ID phù hợp nhất cho cột khởi đầu Todo.
+func GetTodoStatusOptionID(options map[string]string) (string, bool) {
+	for _, targetName := range todoStatusOptionPriorities {
+		if id, ok := options[targetName]; ok {
+			return id, true
+		}
+	}
+
+	if len(options) == 0 {
+		return "", false
+	}
+
+	optionNames := make([]string, 0, len(options))
+	for name := range options {
+		optionNames = append(optionNames, name)
+	}
+	sort.Strings(optionNames)
+	return options[optionNames[0]], true
+}
+
+func getTodoStatusOptionIDFromProjectOptions(options []ProjectFieldOption) (string, bool) {
+	optionsByName := make(map[string]string, len(options))
+	for _, opt := range options {
+		optionsByName[strings.ToLower(opt.Name)] = opt.ID
+	}
+	return GetTodoStatusOptionID(optionsByName)
 }
 
 // queryGraphQL thực hiện gửi request GraphQL lên GitHub API
@@ -174,19 +205,8 @@ func (c *Client) GetProjectV2StatusField(ctx context.Context, projectID string) 
 	for _, field := range result.Node.Fields.Nodes {
 		if strings.EqualFold(field.Name, "Status") {
 			statusFieldID = field.ID
-			// Tìm option theo thứ tự ưu tiên (phù hợp với các loại Kanban Board khác nhau)
-			priorities := []string{"Todo", "To Do", "New", "Backlog", "PM"}
-			for _, targetName := range priorities {
-				for _, opt := range field.Options {
-					if strings.EqualFold(opt.Name, targetName) {
-						todoOptionID = opt.ID
-						return statusFieldID, todoOptionID, nil
-					}
-				}
-			}
-			// Nếu không khớp tên nào, lấy option đầu tiên làm mặc định
-			if len(field.Options) > 0 {
-				todoOptionID = field.Options[0].ID
+			if id, ok := getTodoStatusOptionIDFromProjectOptions(field.Options); ok {
+				todoOptionID = id
 				return statusFieldID, todoOptionID, nil
 			}
 		}
@@ -467,3 +487,165 @@ func (c *Client) GetProjectV2ItemDetails(ctx context.Context, itemID string) (*P
 
 	return details, nil
 }
+
+// QueryGraphQLRaw thực hiện gửi request GraphQL lên GitHub API và trả về payload phản hồi dạng chuỗi (raw JSON)
+func (c *Client) QueryGraphQLRaw(ctx context.Context, query string, variables map[string]interface{}) (string, error) {
+	reqBody := GraphQLRequest{
+		Query:     query,
+		Variables: variables,
+	}
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal graphql request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.github.com/graphql", bytes.NewBuffer(data))
+	if err != nil {
+		return "", fmt.Errorf("failed to create graphql request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mini-AI-Orchestrator")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send graphql request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("graphql request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return string(bodyBytes), nil
+}
+
+// ListProjectV2Items lists all items (Issues and Pull Requests) in a Project v2 board.
+func (c *Client) ListProjectV2Items(ctx context.Context, projectID string) ([]*ProjectItemDetails, error) {
+	query := `query($projectId: ID!) {
+		node(id: $projectId) {
+			... on ProjectV2 {
+				items(first: 100) {
+					nodes {
+						id
+						statusValue: fieldValueByName(name: "Status") {
+							... on ProjectV2ItemFieldSingleSelectValue {
+								name
+							}
+						}
+						content {
+							... on Issue {
+								__typename
+								id
+								title
+								body
+								number
+								repository {
+									name
+									owner {
+										login
+									}
+								}
+							}
+							... on PullRequest {
+								__typename
+								id
+								title
+								body
+								number
+								repository {
+									name
+									owner {
+										login
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	var result struct {
+		Node struct {
+			Items struct {
+				Nodes []struct {
+					ID          string `json:"id"`
+					StatusValue struct {
+						Name string `json:"name"`
+					} `json:"statusValue"`
+					Content struct {
+						Typename   string `json:"__typename"`
+						ID         string `json:"id"`
+						Title      string `json:"title"`
+						Body       string `json:"body"`
+						Number     int    `json:"number"`
+						Repository struct {
+							Name  string `json:"name"`
+							Owner struct {
+								Login string `json:"login"`
+							} `json:"owner"`
+						} `json:"repository"`
+					} `json:"content"`
+				} `json:"nodes"`
+			} `json:"items"`
+		} `json:"node"`
+	}
+
+	err := c.queryGraphQL(ctx, query, map[string]interface{}{"projectId": projectID}, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query project items: %w", err)
+	}
+
+	var items []*ProjectItemDetails
+	for _, node := range result.Node.Items.Nodes {
+		// Content can be empty if it's a draft issue, skip or handle it
+		if node.Content.ID == "" {
+			continue
+		}
+		items = append(items, &ProjectItemDetails{
+			ID:          node.ID,
+			Status:      node.StatusValue.Name,
+			ContentType: node.Content.Typename,
+			Title:       node.Content.Title,
+			Body:        node.Content.Body,
+			Number:      node.Content.Number,
+			ContentID:   node.Content.ID,
+			RepoOwner:   node.Content.Repository.Owner.Login,
+			RepoName:    node.Content.Repository.Name,
+		})
+	}
+
+	return items, nil
+}
+
+// MoveProjectV2ItemToStatus updates the status column of an item on the project board by column name.
+func (c *Client) MoveProjectV2ItemToStatus(ctx context.Context, projectID string, itemID string, statusName string) error {
+	statusFieldID, options, err := c.GetProjectV2StatusOptions(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project status options: %w", err)
+	}
+
+	optionID, ok := options[strings.ToLower(statusName)]
+	if !ok {
+		var available []string
+		for name := range options {
+			available = append(available, name)
+		}
+		return fmt.Errorf("status column %q not found. Available columns: %v", statusName, available)
+	}
+
+	err = c.UpdateProjectV2ItemStatus(ctx, projectID, itemID, statusFieldID, optionID)
+	if err != nil {
+		return fmt.Errorf("failed to update project item status: %w", err)
+	}
+
+	return nil
+}
+

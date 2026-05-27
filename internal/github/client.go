@@ -2,6 +2,7 @@ package github
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,8 @@ type Issue struct {
 	Title       string `json:"title"`
 	Body        string `json:"body"`
 	CommentsURL string `json:"comments_url"`
+	NodeID      string `json:"node_id"`
+	HTMLURL     string `json:"html_url"`
 }
 
 // IssueEvent represents the github issue webhook event structure.
@@ -87,4 +90,49 @@ func (c *Client) CommentOnIssue(commentsURL string, body string) error {
 	}
 
 	return nil
+}
+
+// CreateIssue creates a new issue on GitHub using the REST API.
+func (c *Client) CreateIssue(ctx context.Context, owner, repo, title, body string) (*Issue, error) {
+	if c.token == "" {
+		return nil, fmt.Errorf("GITHUB_TOKEN is not set")
+	}
+
+	payload := map[string]string{
+		"title": title,
+		"body":  body,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal issue payload: %w", err)
+	}
+
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues", owner, repo)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mini-AI-Orchestrator")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create issue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to create issue, status: %d, body: %s", resp.StatusCode, string(respBody))
+	}
+
+	var issue Issue
+	if err := json.NewDecoder(resp.Body).Decode(&issue); err != nil {
+		return nil, fmt.Errorf("failed to decode issue response: %w", err)
+	}
+
+	return &issue, nil
 }
