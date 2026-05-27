@@ -45,6 +45,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PRODUCT_REPO_NAME: ${{ steps.extract_repo.outputs.PRODUCT_REPO }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          PROJECT_NUMBER: ${{ secrets.PROJECT_NUMBER }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           # Chạy trực tiếp file main của Go
