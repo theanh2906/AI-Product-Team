@@ -129,6 +129,9 @@ Do not use placeholders or write stub code; the source code must be immediately 
 	}
 
 	// 4. Commit & Push code
+	_ = runGitCommand(productRepoDir, "config", "user.name", "github-actions[bot]")
+	_ = runGitCommand(productRepoDir, "config", "user.email", "github-actions[bot]@users.noreply.github.com")
+
 	if err := runGitCommand(productRepoDir, "add", "."); err != nil {
 		return "", fmt.Errorf("failed to git add: %w", err)
 	}
