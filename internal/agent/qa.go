@@ -6,8 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	"google.golang.org/genai"
 )
 
 // QAAgent represents the QA agent specialized in running tests and diagnosing failures
@@ -54,30 +52,25 @@ func (qa *QAAgent) RunTests(ctx context.Context, testCommand string) (string, bo
 	return outputStr, true, nil
 }
 
-// DiagnoseFailure uses the Gemini SDK to analyze error logs and suggest fixes
-func (qa *QAAgent) DiagnoseFailure(ctx context.Context, geminiAPIKey string, testLog string, taskTitle string) (string, error) {
-	fmt.Printf(" [%s]: Sending test log to Gemini for failure diagnosis...\n", qa.Name)
+// DiagnoseFailure uses the GitHub Models API to analyze error logs and suggest fixes
+func (qa *QAAgent) DiagnoseFailure(ctx context.Context, githubToken string, testLog string, taskTitle string) (string, error) {
+	fmt.Printf(" [%s]: Sending test log to GitHub Models for failure diagnosis...\n", qa.Name)
 
-	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
-	if err != nil {
-		return "", fmt.Errorf("failed to create Gemini client: %w", err)
+	modelName := os.Getenv("QA_MODEL")
+	if modelName == "" {
+		modelName = os.Getenv("AI_MODEL")
 	}
+	aiClient := NewLLMClient(githubToken, modelName)
 
 	systemInstruction := `You are an outstanding AI QA Engineer, an expert in software testing and debugging.
 Your task is to read the test failure log from the CI/CD system, analyze why the tests failed, identify the suspicious files/lines of code causing the failure, and suggest detailed, easy-to-understand fix solutions for the developer.`
 
 	prompt := fmt.Sprintf("Below is the task information under test and the failure log:\nTask: %s\n\nTest failure log:\n%s\n\nPlease analyze and return a detailed bug fix report in Markdown format.", taskTitle, testLog)
 
-	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{
-				genai.NewPartFromText(systemInstruction),
-			},
-		},
-	})
+	respText, err := aiClient.GenerateContent(ctx, systemInstruction, prompt, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate diagnosis from Gemini: %w", err)
+		return "", fmt.Errorf("failed to generate diagnosis from GitHub Models: %w", err)
 	}
 
-	return resp.Text(), nil
+	return respText, nil
 }

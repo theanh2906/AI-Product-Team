@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v60/github"
-	"google.golang.org/genai"
 )
 
 // FileChange represents a file change (create or edit) decided by the AI
@@ -19,7 +18,7 @@ type FileChange struct {
 	Content string `json:"content"` // Full content of the new/edited file
 }
 
-// DeveloperResponse is the response structure from Gemini containing the explanation and file changes
+// DeveloperResponse is the response structure containing the explanation and file changes
 type DeveloperResponse struct {
 	Explanation string       `json:"explanation"`
 	Changes     []FileChange `json:"changes"`
@@ -38,14 +37,15 @@ func NewDeveloper() *Developer {
 }
 
 // DevelopTask analyzes the task, auto-writes code, creates a branch, commits, pushes and opens a PR
-func (d *Developer) DevelopTask(ctx context.Context, ghClient *github.Client, geminiAPIKey string, owner, repo string, issueNumber int, taskTitle string, taskDescription string, productRepoDir string, branchName string) (string, error) {
+func (d *Developer) DevelopTask(ctx context.Context, ghClient *github.Client, githubToken string, owner, repo string, issueNumber int, taskTitle string, taskDescription string, productRepoDir string, branchName string) (string, error) {
 	fmt.Printf(" [%s]: Researching task #%d: '%s'...\n", d.Name, issueNumber, taskTitle)
 
-	// 1. Call Gemini SDK to generate source code
-	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
-	if err != nil {
-		return "", fmt.Errorf("failed to create Gemini client: %w", err)
+	// 1. Call GitHub Models API to generate source code
+	modelName := os.Getenv("DEVELOPER_MODEL")
+	if modelName == "" {
+		modelName = os.Getenv("AI_MODEL")
 	}
+	aiClient := NewLLMClient(githubToken, modelName)
 
 	systemInstruction := `You are a Senior Fullstack Engineer with excellent skills in writing clean and optimized code.
 Your task is to read the development requirement or bug report, design the source files that need to be changed, and return the complete list of files along with their corresponding content in JSON format according to the provided schema.
@@ -53,39 +53,45 @@ Do not use placeholders or write stub code; the source code must be immediately 
 
 	prompt := fmt.Sprintf("Please resolve the following task:\nTitle: %s\nDetailed requirements:\n%s\n\nReturn the list of corresponding source file changes.", taskTitle, taskDescription)
 
-	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{
-				genai.NewPartFromText(systemInstruction),
-			},
-		},
-		ResponseMIMEType: "application/json",
-		ResponseSchema: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{
-				"explanation": {Type: genai.TypeString},
-				"changes": {
-					Type: genai.TypeArray,
-					Items: &genai.Schema{
-						Type: genai.TypeObject,
-						Properties: map[string]*genai.Schema{
-							"path":    {Type: genai.TypeString},
-							"content": {Type: genai.TypeString},
+	schema := &JSONSchema{
+		Name:   "developer_response",
+		Strict: true,
+		Schema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"explanation": map[string]interface{}{
+					"type": "string",
+				},
+				"changes": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"path": map[string]interface{}{
+								"type": "string",
+							},
+							"content": map[string]interface{}{
+								"type": "string",
+							},
 						},
-						Required: []string{"path", "content"},
+						"required":             []string{"path", "content"},
+						"additionalProperties": false,
 					},
 				},
 			},
-			Required: []string{"explanation", "changes"},
+			"required":             []string{"explanation", "changes"},
+			"additionalProperties": false,
 		},
-	})
+	}
+
+	respText, err := aiClient.GenerateContent(ctx, systemInstruction, prompt, schema)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate code from Gemini: %w", err)
+		return "", fmt.Errorf("failed to generate code from GitHub Models: %w", err)
 	}
 
 	var devResult DeveloperResponse
-	if err := json.Unmarshal([]byte(resp.Text()), &devResult); err != nil {
-		return "", fmt.Errorf("failed to parse Gemini response: %w, raw response: %s", err, resp.Text())
+	if err := json.Unmarshal([]byte(respText), &devResult); err != nil {
+		return "", fmt.Errorf("failed to parse Developer response: %w, raw response: %s", err, respText)
 	}
 
 	fmt.Printf(" [%s]: Solution explanation: %s\n", d.Name, devResult.Explanation)

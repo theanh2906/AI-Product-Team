@@ -15,7 +15,6 @@ import (
 
 	"github.com/google/go-github/v60/github"
 	"golang.org/x/oauth2"
-	"google.golang.org/genai"
 )
 
 // loadEnv loads environment variables from a local .env file if it exists.
@@ -55,7 +54,6 @@ func main() {
 
 	// 1. Retrieve environment variables
 	githubToken := os.Getenv("GITHUB_TOKEN")
-	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
 	orchestratorRepo := os.Getenv("GITHUB_REPOSITORY")
 	owner := "theanh2906"
 	issueNumStr := os.Getenv("ISSUE_NUMBER")
@@ -87,63 +85,77 @@ func main() {
 	// 1.2 Check if running in Kanban State-Machine mode (PROJECT_ITEM_ID)
 	projectItemID := os.Getenv("PROJECT_ITEM_ID")
 	if projectItemID != "" {
-		runKanbanStateMachineFlow(ctx, ghClient, githubToken, geminiAPIKey, projectItemID, projectNumStr, projectOwner)
+		runKanbanStateMachineFlow(ctx, ghClient, githubToken, projectItemID, projectNumStr, projectOwner)
 		return
 	}
 
 	// 1.1 Check run mode (Orchestrator Mode)
 	orchestratorMode := strings.ToLower(os.Getenv("ORCHESTRATOR_MODE"))
 	if orchestratorMode == "qa" {
-		runQAAgentFlow(ctx, ghClient, githubToken, geminiAPIKey, owner, productRepoName, orchestratorRealName, issueNumber, issueTitle, projectNumStr, projectOwner)
+		runQAAgentFlow(ctx, ghClient, githubToken, owner, productRepoName, orchestratorRealName, issueNumber, issueTitle, projectNumStr, projectOwner)
 		return
 	}
 
-	// 2. Call Gemini "Brain" (Keep schema configuration from previous round)
-	fmt.Println(" [Team Lead Agent]: Sending context to Gemini for analysis...")
-	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
-	if err != nil {
-		fmt.Printf("❌ Failed to create Gemini Client: %v\n", err)
-		os.Exit(1)
+	// 2. Call GitHub Models API (Team Lead)
+	fmt.Println(" [Team Lead Agent]: Sending context to GitHub Models for analysis...")
+	modelName := os.Getenv("TEAM_LEAD_MODEL")
+	if modelName == "" {
+		modelName = os.Getenv("AI_MODEL")
 	}
+	aiClient := agent.NewLLMClient(githubToken, modelName)
 
 	systemInstruction := `You are an outstanding AI Team Lead and Business Analyst (PM). Your task is to break down Issues into detailed technical Tasks in JSON format. Assign all technical development tasks (assignee) to "Senior Fullstack Engineer".`
 	prompt := fmt.Sprintf("Please analyze the following request from PM Ben:\nTitle: %s\nDetailed content:\n%s", issueTitle, issueBody)
 
-	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{
-				genai.NewPartFromText(systemInstruction),
-			},
-		},
-		ResponseMIMEType: "application/json",
-		ResponseSchema: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{
-				"analysis": {Type: genai.TypeString},
-				"tasks": {
-					Type: genai.TypeArray,
-					Items: &genai.Schema{
-						Type: genai.TypeObject,
-						Properties: map[string]*genai.Schema{
-							"title":       {Type: genai.TypeString},
-							"description": {Type: genai.TypeString},
-							"assignee":    {Type: genai.TypeString},
-							"branch_name": {Type: genai.TypeString},
-							"depends_on":  {Type: genai.TypeArray, Items: &genai.Schema{Type: genai.TypeString}},
+	schema := &agent.JSONSchema{
+		Name:   "team_lead_response",
+		Strict: true,
+		Schema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"analysis": map[string]interface{}{
+					"type": "string",
+				},
+				"tasks": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"title": map[string]interface{}{
+								"type": "string",
+							},
+							"description": map[string]interface{}{
+								"type": "string",
+							},
+							"assignee": map[string]interface{}{
+								"type": "string",
+							},
+							"branch_name": map[string]interface{}{
+								"type": "string",
+							},
+							"depends_on": map[string]interface{}{
+								"type":  "array",
+								"items": map[string]interface{}{"type": "string"},
+							},
 						},
+						"required":             []string{"title", "description", "assignee", "branch_name", "depends_on"},
+						"additionalProperties": false,
 					},
 				},
 			},
+			"required":             []string{"analysis", "tasks"},
+			"additionalProperties": false,
 		},
-	})
+	}
+
+	respText, err := aiClient.GenerateContent(ctx, systemInstruction, prompt, schema)
 	if err != nil {
-		fmt.Printf("❌ Gemini call error: %v\n", err)
+		fmt.Printf("❌ GitHub Models call error: %v\n", err)
 		os.Exit(1)
 	}
 
 	var aiResult agent.AIResponse
-	rawJSON := resp.Text()
-	json.Unmarshal([]byte(rawJSON), &aiResult)
+	json.Unmarshal([]byte(respText), &aiResult)
 
 	// 3. AUTOMATICALLY CREATE BRANCHES IN THE PRODUCT REPO
 	fmt.Printf(" [Team Lead Agent]: Starting to initialize branches in Repo: %s...\n", productRepoName)
@@ -284,7 +296,7 @@ func main() {
 }
 
 // runQAAgentFlow orchestrates the QA Agent test execution flow
-func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, geminiAPIKey, owner, productRepoName, orchestratorRealName string, issueNumber int, issueTitle string, projectNumStr, projectOwner string) {
+func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, owner, productRepoName, orchestratorRealName string, issueNumber int, issueTitle string, projectNumStr, projectOwner string) {
 	fmt.Println(" [QA Agent]: Starting test mode...")
 
 	// 1. Get test command configuration (Default: go test ./...)
@@ -310,11 +322,11 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, g
 		reportBody = fmt.Sprintf(" **[AI QA Agent Report]**\n\n✅ **Tests PASSED! (QA Passed)**\n\n- **Command:** `%s`\n\n### ️ Test Log Details:\n```text\n%s\n```", testCommand, testLog)
 		targetStatus = "done"
 	} else {
-		// Test Failed -> Call Gemini for failure diagnosis
-		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, geminiAPIKey, testLog, issueTitle)
+		// Test Failed -> Call GitHub Models for failure diagnosis
+		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, githubToken, testLog, issueTitle)
 		if diagErr != nil {
-			fmt.Printf("⚠️ Warning: Failed to call Gemini for failure diagnosis: %v\n", diagErr)
-			diagnosis = "*(Could not retrieve automatic failure diagnosis from Gemini)*"
+			fmt.Printf("⚠️ Warning: Failed to call GitHub Models for failure diagnosis: %v\n", diagErr)
+			diagnosis = "*(Could not retrieve automatic failure diagnosis from GitHub Models)*"
 		}
 
 		// 3.1 Create a new bug report Issue
@@ -452,7 +464,7 @@ func sanitizeBranchName(title string) string {
 }
 
 // runKanbanStateMachineFlow routes the execution flow based on the Kanban card status
-func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, githubToken, geminiAPIKey, projectItemID string, projectNumStr, projectOwner string) {
+func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, githubToken, projectItemID string, projectNumStr, projectOwner string) {
 	fmt.Printf("️ [Kanban Router]: Activating State-Machine for card ID: %s\n", projectItemID)
 
 	if projectNumStr == "" {
@@ -497,59 +509,74 @@ func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, git
 	switch statusNormalized {
 	case "backlog", "todo":
 		// Run Developer Agent (Senior Fullstack Engineer)
-		runDeveloperAgentOnKanban(ctx, ghClient, wrapperClient, geminiAPIKey, details, projectID, statusFieldID, options)
+		runDeveloperAgentOnKanban(ctx, ghClient, wrapperClient, githubToken, details, projectID, statusFieldID, options)
 	default:
 		fmt.Printf("ℹ️ [Kanban Router]: Column '%s' has no automated action. Skipping.\n", details.Status)
 	}
 }
 
 // runTeamLeadAgentOnKanban handles when the card is in the PM column: breaks it into child tasks and puts them in Backlog
-func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, geminiAPIKey string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
+func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, githubToken string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
 	fmt.Println(" [Team Lead Agent]: Analyzing requirements and breaking down tasks...")
 
-	aiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminiAPIKey})
-	if err != nil {
-		fmt.Printf("❌ Failed to create Gemini Client: %v\n", err)
-		os.Exit(1)
+	modelName := os.Getenv("TEAM_LEAD_MODEL")
+	if modelName == "" {
+		modelName = os.Getenv("AI_MODEL")
 	}
+	aiClient := agent.NewLLMClient(githubToken, modelName)
 
 	systemInstruction := `You are an outstanding AI Team Lead and Business Analyst (PM). Your task is to break down Issues into detailed technical Tasks in JSON format. Assign all technical development tasks (assignee) to "Senior Fullstack Engineer".`
 	prompt := fmt.Sprintf("Please analyze the following request from PM Ben:\nTitle: %s\nDetailed content:\n%s", details.Title, details.Body)
 
-	resp, err := aiClient.Models.GenerateContent(ctx, "gemini-3-flash-preview", genai.Text(prompt), &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{
-				genai.NewPartFromText(systemInstruction),
-			},
-		},
-		ResponseMIMEType: "application/json",
-		ResponseSchema: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{
-				"analysis": {Type: genai.TypeString},
-				"tasks": {
-					Type: genai.TypeArray,
-					Items: &genai.Schema{
-						Type: genai.TypeObject,
-						Properties: map[string]*genai.Schema{
-							"title":       {Type: genai.TypeString},
-							"description": {Type: genai.TypeString},
-							"assignee":    {Type: genai.TypeString},
-							"branch_name": {Type: genai.TypeString},
-							"depends_on":  {Type: genai.TypeArray, Items: &genai.Schema{Type: genai.TypeString}},
+	schema := &agent.JSONSchema{
+		Name:   "team_lead_response",
+		Strict: true,
+		Schema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"analysis": map[string]interface{}{
+					"type": "string",
+				},
+				"tasks": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"title": map[string]interface{}{
+								"type": "string",
+							},
+							"description": map[string]interface{}{
+								"type": "string",
+							},
+							"assignee": map[string]interface{}{
+								"type": "string",
+							},
+							"branch_name": map[string]interface{}{
+								"type": "string",
+							},
+							"depends_on": map[string]interface{}{
+								"type":  "array",
+								"items": map[string]interface{}{"type": "string"},
+							},
 						},
+						"required":             []string{"title", "description", "assignee", "branch_name", "depends_on"},
+						"additionalProperties": false,
 					},
 				},
 			},
+			"required":             []string{"analysis", "tasks"},
+			"additionalProperties": false,
 		},
-	})
+	}
+
+	respText, err := aiClient.GenerateContent(ctx, systemInstruction, prompt, schema)
 	if err != nil {
-		fmt.Printf("❌ Gemini call error: %v\n", err)
+		fmt.Printf("❌ GitHub Models call error: %v\n", err)
 		os.Exit(1)
 	}
 
 	var aiResult agent.AIResponse
-	json.Unmarshal([]byte(resp.Text()), &aiResult)
+	json.Unmarshal([]byte(respText), &aiResult)
 
 	// Get the SHA of the main branch to use as the base for branch creation
 	defaultBranch := "main"
@@ -638,7 +665,7 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 }
 
 // runDeveloperAgentOnKanban handles when the card is in the Backlog column: auto-codes and opens a PR, moves to In QA
-func runDeveloperAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, geminiAPIKey string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
+func runDeveloperAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, githubToken string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
 	fmt.Println(" [Developer Agent]: Received task and starting code development...")
 
 	// 1. Determine the product code directory
@@ -657,7 +684,7 @@ func runDeveloperAgentOnKanban(ctx context.Context, ghClient *github.Client, wra
 
 	// 3. Launch AI Developer to write code
 	devAgent := agent.NewDeveloper()
-	summaryReport, err := devAgent.DevelopTask(ctx, ghClient, geminiAPIKey, details.RepoOwner, details.RepoName, details.Number, details.Title, details.Body, productRepoDir, branchName)
+	summaryReport, err := devAgent.DevelopTask(ctx, ghClient, githubToken, details.RepoOwner, details.RepoName, details.Number, details.Title, details.Body, productRepoDir, branchName)
 
 	if err != nil {
 		fmt.Printf("❌ AI Developer coding failed: %v\n", err)
@@ -688,7 +715,7 @@ func runDeveloperAgentOnKanban(ctx context.Context, ghClient *github.Client, wra
 }
 
 // runQAAgentOnKanban handles when the card is in the In QA column: auto-tests, updates column or creates bug
-func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, geminiAPIKey string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
+func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperClient *ghWrapper.Client, githubToken string, details *ghWrapper.ProjectItemDetails, projectID, statusFieldID string, options map[string]string) {
 	fmt.Println(" [QA Agent]: Starting test suite execution...")
 
 	// 1. Determine the product code directory
@@ -726,10 +753,10 @@ func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperCli
 		reportBody = fmt.Sprintf(" **[AI QA Agent Report]**\n\n✅ **Tests PASSED! (QA Passed)**\n\n- **Command:** `%s`\n- **Test branch:** `%s`\n\n### ️ Test Log Details:\n```text\n%s\n```", testCommand, branchName, testLog)
 		targetStatus = "done"
 	} else {
-		// Call Gemini to analyze the failure log
-		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, geminiAPIKey, testLog, details.Title)
+		// Call GitHub Models to analyze the failure log
+		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, githubToken, testLog, details.Title)
 		if diagErr != nil {
-			diagnosis = "*(Could not retrieve automatic failure diagnosis from Gemini)*"
+			diagnosis = "*(Could not retrieve automatic failure diagnosis from GitHub Models)*"
 		}
 
 		// Create a new Bug Issue and add to Kanban
