@@ -47,11 +47,15 @@ func (d *Developer) DevelopTask(ctx context.Context, ghClient *github.Client, gi
 	}
 	aiClient := NewLLMClient(githubToken, modelName)
 
+	projectContext := getProjectContext(productRepoDir)
+	relevantFilesContent := getRelevantFilesContent(productRepoDir, taskTitle, taskDescription)
+
 	systemInstruction := `You are a Senior Fullstack Engineer with excellent skills in writing clean and optimized code.
-Your task is to read the development requirement or bug report, design the source files that need to be changed, and return the complete list of files along with their corresponding content in JSON format according to the provided schema.
+Your task is to read the development requirement or bug report, analyze the provided project context (file tree, file types, reference code), and design/write the source file changes needed.
+You MUST write code matching the existing project's language, file extensions (e.g., .tsx for React TypeScript components, .ts for TypeScript modules, .go for Go, etc.), directory structure, and coding style.
 Do not use placeholders or write stub code; the source code must be immediately runnable and complete.`
 
-	prompt := fmt.Sprintf("Please resolve the following task:\nTitle: %s\nDetailed requirements:\n%s\n\nReturn the list of corresponding source file changes.", taskTitle, taskDescription)
+	prompt := fmt.Sprintf("Here is the project context and file structure:\n%s\n%s\n\nPlease resolve the following task:\nTitle: %s\nDetailed requirements:\n%s\n\nReturn the list of corresponding source file changes.", projectContext, relevantFilesContent, taskTitle, taskDescription)
 
 	schema := &JSONSchema{
 		Name:   "developer_response",
@@ -210,4 +214,122 @@ func runGitCommand(dir string, args ...string) error {
 		return fmt.Errorf("git %v failed: %w, output: %s", args, err, string(output))
 	}
 	return nil
+}
+
+// getProjectContext scans the repository directory to build a file list and detect file extensions
+func getProjectContext(productRepoDir string) string {
+	if productRepoDir == "" || productRepoDir == "." {
+		return ""
+	}
+
+	var fileList []string
+	var extensions = make(map[string]int)
+	maxFiles := 150
+
+	_ = filepath.Walk(productRepoDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		
+		rel, err := filepath.Rel(productRepoDir, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+
+		if info.IsDir() {
+			dirName := info.Name()
+			if dirName == ".git" || dirName == "node_modules" || dirName == "dist" || dirName == "build" || dirName == ".next" || dirName == "out" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(info.Name()))
+		if ext != "" {
+			extensions[ext]++
+		}
+
+		if len(fileList) < maxFiles {
+			fileList = append(fileList, rel)
+		}
+		return nil
+	})
+
+	var extStrings []string
+	for ext, count := range extensions {
+		extStrings = append(extStrings, fmt.Sprintf("%s (%d files)", ext, count))
+	}
+
+	sb := strings.Builder{}
+	sb.WriteString("### Product Repository File Types\n")
+	sb.WriteString(fmt.Sprintf("- Primary file types found: %s\n", strings.Join(extStrings, ", ")))
+	sb.WriteString("\n### Existing File Tree (Subset):\n")
+	for _, f := range fileList {
+		sb.WriteString(fmt.Sprintf("- %s\n", f))
+	}
+
+	return sb.String()
+}
+
+// getRelevantFilesContent matches keywords in task to read existing code files and provide them as context
+func getRelevantFilesContent(productRepoDir string, taskTitle string, taskDescription string) string {
+	if productRepoDir == "" || productRepoDir == "." {
+		return ""
+	}
+
+	content := strings.ToLower(taskTitle + " " + taskDescription)
+	
+	var matchedFiles []string
+	_ = filepath.Walk(productRepoDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		
+		rel, err := filepath.Rel(productRepoDir, path)
+		if err != nil {
+			return nil
+		}
+
+		dirName := filepath.Dir(rel)
+		if strings.HasPrefix(rel, ".") || strings.Contains(dirName, "node_modules") || strings.Contains(dirName, "dist") || strings.Contains(dirName, "build") || strings.Contains(dirName, ".next") {
+			return nil
+		}
+
+		fileNameLower := strings.ToLower(info.Name())
+		nameWithoutExt := strings.TrimSuffix(fileNameLower, filepath.Ext(fileNameLower))
+		
+		if len(nameWithoutExt) > 3 && strings.Contains(content, nameWithoutExt) {
+			matchedFiles = append(matchedFiles, rel)
+		}
+		
+		return nil
+	})
+
+	if len(matchedFiles) > 5 {
+		matchedFiles = matchedFiles[:5]
+	}
+
+	if len(matchedFiles) == 0 {
+		return ""
+	}
+
+	sb := strings.Builder{}
+	sb.WriteString("\n### Reference Source Code of Relevant Existing Files\n")
+	for _, relPath := range matchedFiles {
+		fullPath := filepath.Join(productRepoDir, relPath)
+		fileData, err := os.ReadFile(fullPath)
+		if err != nil {
+			continue
+		}
+		
+		lines := strings.Split(string(fileData), "\n")
+		if len(lines) > 400 {
+			lines = lines[:400]
+			lines = append(lines, "... (content truncated for length) ...")
+		}
+		
+		sb.WriteString(fmt.Sprintf("File: `%s`\n```\n%s\n```\n\n", relPath, strings.Join(lines, "\n")))
+	}
+
+	return sb.String()
 }
