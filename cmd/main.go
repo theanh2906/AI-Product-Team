@@ -301,8 +301,7 @@ func main() {
 			wrapperClient := ghWrapper.NewClient(githubToken)
 
 			// Get Project ID
-			projectID := "4"
-			var err error
+			projectID, err := wrapperClient.GetProjectV2ID(ctx, projectOwner, projectNum)
 			if err != nil {
 				fmt.Printf("❌ Failed to get Project ID for Project #%d: %v\n", projectNum, err)
 			} else {
@@ -576,6 +575,11 @@ func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, git
 
 	fmt.Printf(" [Kanban Router]: Card belongs to repo %s/%s, current column status: '%s'\n", details.RepoOwner, details.RepoName, details.Status)
 
+	if details.RepoName == "" {
+		fmt.Printf("ℹ️ [Kanban Router]: Card ID %s is a draft issue (not linked to a repository). Skipping.\n", projectItemID)
+		return
+	}
+
 	// 1.1 Determine product repo dir and auto-clone if needed
 	orchestratorRepo := os.Getenv("GITHUB_REPOSITORY")
 	var orchestratorRealName string
@@ -603,8 +607,7 @@ func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, git
 	}
 
 	// Get Project ID
-	projectID := "4"
-	err = nil
+	projectID, err := wrapperClient.GetProjectV2ID(ctx, projectOwner, projectNum)
 	if err != nil {
 		fmt.Printf("❌ Error getting Project ID: %v\n", err)
 		os.Exit(1)
@@ -961,7 +964,11 @@ func runKanbanPollingFlow(ctx context.Context, ghClient *github.Client, githubTo
 	wrapperClient := ghWrapper.NewClient(githubToken)
 
 	// Get Project ID
-	projectID := "4"
+	projectID, err := wrapperClient.GetProjectV2ID(ctx, projectOwner, projectNum)
+	if err != nil {
+		fmt.Printf("❌ Error getting Project ID: %v\n", err)
+		return
+	}
 
 	// List all items on the board
 	items, err := wrapperClient.ListProjectV2Items(ctx, projectID)
