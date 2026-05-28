@@ -144,6 +144,22 @@ Do not use placeholders or write stub code; the source code must be immediately 
 	}
 	fmt.Printf(" [%s]: Code successfully pushed to branch %s!\n", d.Name, branchName)
 
+	// Parse base branch from description (defaults to main)
+	baseBranch := "main"
+	for _, line := range strings.Split(taskDescription, "\n") {
+		if strings.Contains(line, "Parent Branch:") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				rawBranch := strings.TrimSpace(parts[1])
+				rawBranch = strings.Trim(rawBranch, "*` ")
+				if rawBranch != "" {
+					baseBranch = rawBranch
+					break
+				}
+			}
+		}
+	}
+
 	// 5. Create Pull Request on GitHub
 	prTitle := fmt.Sprintf("PR for Task #%d: %s", issueNumber, taskTitle)
 	prBody := fmt.Sprintf("##  AI Developer Agent Pull Request\n\nRelated Task: #%d\n\n###  Change Explanation:\n%s", issueNumber, devResult.Explanation)
@@ -151,7 +167,7 @@ Do not use placeholders or write stub code; the source code must be immediately 
 	newPR := &github.NewPullRequest{
 		Title: github.String(prTitle),
 		Head:  github.String(branchName),
-		Base:  github.String("main"), // Base is usually main/master
+		Base:  github.String(baseBranch),
 		Body:  github.String(prBody),
 	}
 

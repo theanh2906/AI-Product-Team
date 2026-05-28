@@ -190,6 +190,24 @@ func main() {
 	baseSHA := ref.GetCommit().GetSHA()
 	fmt.Printf(" Base SHA of branch %s is: %s\n", defaultBranch, baseSHA)
 
+	// Create the parent branch (Branch A) for the PM's issue: ai-implement/issue-<issueNumber>
+	parentBranchName := fmt.Sprintf("ai-implement/issue-%d", issueNumber)
+	parentRefString := fmt.Sprintf("refs/heads/%s", parentBranchName)
+	parentRef := &github.Reference{
+		Ref:    github.String(parentRefString),
+		Object: &github.GitObject{SHA: github.String(baseSHA)},
+	}
+	_, _, err = ghClient.Git.CreateRef(ctx, owner, productRepoName, parentRef)
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			fmt.Printf("ℹ️ Parent branch %s already exists\n", parentBranchName)
+		} else {
+			fmt.Printf("⚠️ Failed to create parent branch %s: %v\n", parentBranchName, err)
+		}
+	} else {
+		fmt.Printf("✅ Parent branch %s successfully created\n", parentBranchName)
+	}
+
 	// 3.3 Iterate through the task array to create each corresponding branch
 	createdBranchesReport := "\n###  Git Branch Initialization Status in Product Repo:\n"
 
@@ -257,7 +275,7 @@ func main() {
 				for _, task := range aiResult.Tasks {
 					// 4.1 Create a new Issue in the Product Repo
 					issueTitle := fmt.Sprintf("[%s] %s", task.Assignee, task.Title)
-					issueBody := fmt.Sprintf("%s\n\n---\n*Task assigned to: %s*\n*Expected branch: `%s`*", task.Description, task.Assignee, task.BranchName)
+					issueBody := fmt.Sprintf("%s\n\n---\n*Task assigned to: %s*\n*Expected branch: `%s`*\n*Parent Branch: `%s`*", task.Description, task.Assignee, task.BranchName, parentBranchName)
 
 					issueReq := &github.IssueRequest{
 						Title: github.String(issueTitle),
@@ -630,6 +648,26 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 		baseSHA = ref.GetCommit().GetSHA()
 	}
 
+	// Create the parent branch (Branch A) for the PM's issue: ai-implement/issue-<details.Number>
+	parentBranchName := fmt.Sprintf("ai-implement/issue-%d", details.Number)
+	if baseSHA != "" {
+		parentRefString := fmt.Sprintf("refs/heads/%s", parentBranchName)
+		parentRef := &github.Reference{
+			Ref:    github.String(parentRefString),
+			Object: &github.GitObject{SHA: github.String(baseSHA)},
+		}
+		_, _, err = ghClient.Git.CreateRef(ctx, details.RepoOwner, details.RepoName, parentRef)
+		if err != nil {
+			if strings.Contains(err.Error(), "already exists") {
+				fmt.Printf("ℹ️ Parent branch %s already exists\n", parentBranchName)
+			} else {
+				fmt.Printf("⚠️ Failed to create parent branch %s: %v\n", parentBranchName, err)
+			}
+		} else {
+			fmt.Printf("✅ Parent branch %s successfully created\n", parentBranchName)
+		}
+	}
+
 	createdBranchesReport := "\n###  Git Branch Initialization Status in Product Repo:\n"
 	createdIssuesReport := "\n###  Task Creation & Kanban Board Status in Product Repo:\n"
 
@@ -654,7 +692,7 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 		cleanBranchName := sanitizeBranchName(fmt.Sprintf("task-%d-%s", issueNum, task.Title))
 
 		// Update the Issue description to be complete
-		updatedBody := fmt.Sprintf("%s\n\n---\n*Task assigned to: %s*\n*Expected branch: `%s`*", task.Description, task.Assignee, cleanBranchName)
+		updatedBody := fmt.Sprintf("%s\n\n---\n*Task assigned to: %s*\n*Expected branch: `%s`*\n*Parent Branch: `%s`*", task.Description, task.Assignee, cleanBranchName, parentBranchName)
 		_, _, _ = ghClient.Issues.Edit(ctx, details.RepoOwner, details.RepoName, issueNum, &github.IssueRequest{
 			Body: github.String(updatedBody),
 		})
