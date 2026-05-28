@@ -3,6 +3,8 @@ name: 🚀 Mini AI Team Go Orchestrator
 on:
   issues:
     types: [labeled, transferred]
+  project_v2_item:
+    types: [created, edited]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -11,7 +13,8 @@ jobs:
   coordinate-ai-team:
     if: |
       (github.event.action == 'labeled' && github.event.label.name == 'ai-process') ||
-      (github.event.action == 'transferred' && contains(github.event.issue.labels.*.name, 'ai-process'))
+      (github.event.action == 'transferred' && contains(github.event.issue.labels.*.name, 'ai-process')) ||
+      (github.event_name == 'project_v2_item' && (github.event.action == 'created' || (github.event.action == 'edited' && github.event.changes.field_value.field_name == 'Status')))
     runs-on: ubuntu-latest
     steps:
       - name: 📑 Checkout Bộ Chỉ Huy Code
@@ -42,6 +45,7 @@ jobs:
           # Truyền các biến cần thiết cho Go app
           GITHUB_TOKEN: ${{ secrets.TEAM_GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PROJECT_ITEM_ID: ${{ github.event.project_v2_item.node_id }}
           PRODUCT_REPO_NAME: ${{ steps.extract_repo.outputs.PRODUCT_REPO }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           PROJECT_NUMBER: ${{ secrets.PROJECT_NUMBER }}
