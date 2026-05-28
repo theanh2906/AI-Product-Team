@@ -427,6 +427,11 @@ func (c *Client) GetProjectV2ItemDetails(ctx context.Context, itemID string) (*P
 								login
 							}
 						}
+						labels(first: 10) {
+							nodes {
+								name
+							}
+						}
 					}
 					... on PullRequest {
 						__typename
@@ -438,6 +443,11 @@ func (c *Client) GetProjectV2ItemDetails(ctx context.Context, itemID string) (*P
 							name
 							owner {
 								login
+							}
+						}
+						labels(first: 10) {
+							nodes {
+								name
 							}
 						}
 					}
@@ -464,6 +474,11 @@ func (c *Client) GetProjectV2ItemDetails(ctx context.Context, itemID string) (*P
 						Login string `json:"login"`
 					} `json:"owner"`
 				} `json:"repository"`
+				Labels struct {
+					Nodes []struct {
+						Name string `json:"name"`
+					} `json:"nodes"`
+				} `json:"labels"`
 			} `json:"content"`
 		} `json:"node"`
 	}
@@ -471,6 +486,14 @@ func (c *Client) GetProjectV2ItemDetails(ctx context.Context, itemID string) (*P
 	err := c.queryGraphQL(ctx, query, map[string]interface{}{"itemId": itemID}, &result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project item details: %w", err)
+	}
+
+	repoName := result.Node.Content.Repository.Name
+	for _, lbl := range result.Node.Content.Labels.Nodes {
+		if strings.HasPrefix(lbl.Name, "repo:") {
+			repoName = strings.TrimPrefix(lbl.Name, "repo:")
+			break
+		}
 	}
 
 	details := &ProjectItemDetails{
@@ -482,7 +505,7 @@ func (c *Client) GetProjectV2ItemDetails(ctx context.Context, itemID string) (*P
 		Number:      result.Node.Content.Number,
 		ContentID:   result.Node.Content.ID,
 		RepoOwner:   result.Node.Content.Repository.Owner.Login,
-		RepoName:    result.Node.Content.Repository.Name,
+		RepoName:    repoName,
 	}
 
 	return details, nil
@@ -551,6 +574,11 @@ func (c *Client) ListProjectV2Items(ctx context.Context, projectID string) ([]*P
 										login
 									}
 								}
+								labels(first: 10) {
+									nodes {
+										name
+									}
+								}
 							}
 							... on PullRequest {
 								__typename
@@ -562,6 +590,11 @@ func (c *Client) ListProjectV2Items(ctx context.Context, projectID string) ([]*P
 									name
 									owner {
 										login
+									}
+								}
+								labels(first: 10) {
+									nodes {
+										name
 									}
 								}
 							}
@@ -592,6 +625,11 @@ func (c *Client) ListProjectV2Items(ctx context.Context, projectID string) ([]*P
 								Login string `json:"login"`
 							} `json:"owner"`
 						} `json:"repository"`
+						Labels struct {
+							Nodes []struct {
+								Name string `json:"name"`
+							} `json:"nodes"`
+						} `json:"labels"`
 					} `json:"content"`
 				} `json:"nodes"`
 			} `json:"items"`
@@ -609,6 +647,13 @@ func (c *Client) ListProjectV2Items(ctx context.Context, projectID string) ([]*P
 		if node.Content.ID == "" {
 			continue
 		}
+		repoName := node.Content.Repository.Name
+		for _, lbl := range node.Content.Labels.Nodes {
+			if strings.HasPrefix(lbl.Name, "repo:") {
+				repoName = strings.TrimPrefix(lbl.Name, "repo:")
+				break
+			}
+		}
 		items = append(items, &ProjectItemDetails{
 			ID:          node.ID,
 			Status:      node.StatusValue.Name,
@@ -618,7 +663,7 @@ func (c *Client) ListProjectV2Items(ctx context.Context, projectID string) ([]*P
 			Number:      node.Content.Number,
 			ContentID:   node.Content.ID,
 			RepoOwner:   node.Content.Repository.Owner.Login,
-			RepoName:    node.Content.Repository.Name,
+			RepoName:    repoName,
 		})
 	}
 
