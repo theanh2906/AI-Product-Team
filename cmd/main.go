@@ -114,6 +114,50 @@ func main() {
 		return
 	}
 
+	// 1.4 Kanban Polling Mode: If both PROJECT_ITEM_ID and ISSUE_NUMBER are empty, run the Kanban Polling mode!
+	if projectItemID == "" && issueNumber == 0 {
+		fmt.Println(" [Kanban Polling]: No specific issue or project item ID provided. Scanning Project Board for Todo tasks...")
+		runKanbanPollingFlow(ctx, ghClient, githubToken, projectNumStr, projectOwner)
+		return
+	}
+
+	// 1.5 Check if this is a Developer Agent child task triggered directly (e.g. by labeling it with ai-process)
+	if strings.Contains(issueTitle, "[Senior Fullstack Engineer]") {
+		fmt.Println(" [Orchestrator]: Detected child task for Senior Fullstack Engineer. Running Developer Agent directly...")
+
+		// Find expected branch name from issueBody
+		branchName := ""
+		for _, line := range strings.Split(issueBody, "\n") {
+			if strings.Contains(line, "Expected branch:") {
+				parts := strings.Split(line, ":")
+				if len(parts) >= 2 {
+					rawBranch := strings.TrimSpace(parts[1])
+					rawBranch = strings.Trim(rawBranch, "*` ")
+					if rawBranch != "" {
+						branchName = rawBranch
+						break
+					}
+				}
+			}
+		}
+		if branchName == "" {
+			branchName = sanitizeBranchName(fmt.Sprintf("task-%d-%s", issueNumber, issueTitle))
+		}
+
+		devAgent := agent.NewDeveloper()
+		summaryReport, err := devAgent.DevelopTask(ctx, ghClient, githubToken, owner, productRepoName, issueNumber, issueTitle, issueBody, productRepoDir, branchName)
+		if err != nil {
+			fmt.Printf("❌ AI Developer coding failed: %v\n", err)
+			errorComment := fmt.Sprintf(" **[AI Developer Agent Report]**\n\n❌ **Code generation process failed!**\n\n*Error details:* `%v`", err)
+			_, _, _ = ghClient.Issues.CreateComment(ctx, owner, orchestratorRealName, issueNumber, &github.IssueComment{Body: github.String(errorComment)})
+			os.Exit(1)
+		}
+
+		// Post the report as a comment on the child Issue
+		_, _, _ = ghClient.Issues.CreateComment(ctx, owner, orchestratorRealName, issueNumber, &github.IssueComment{Body: github.String(summaryReport)})
+		return
+	}
+
 	// 2. Call GitHub Models API (Team Lead)
 	fmt.Println(" [Team Lead Agent]: Sending context to GitHub Models for analysis...")
 	modelName := os.Getenv("TEAM_LEAD_MODEL")
@@ -890,5 +934,79 @@ func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperCli
 	if targetColID != "" {
 		_ = wrapperClient.UpdateProjectV2ItemStatus(ctx, projectID, details.ID, statusFieldID, targetColID)
 		fmt.Printf(" Current Kanban card status updated to: %s\n", targetStatus)
+	}
+}
+
+// runKanbanPollingFlow scans the Project Board and processes Todo or Backlog items
+func runKanbanPollingFlow(ctx context.Context, ghClient *github.Client, githubToken string, projectNumStr, projectOwner string) {
+	if projectNumStr == "" {
+		fmt.Println("❌ Error: PROJECT_NUMBER is not configured.")
+		return
+	}
+	projectNum, err := strconv.Atoi(projectNumStr)
+	_ = projectNum
+	if err != nil {
+		fmt.Printf("❌ Error: PROJECT_NUMBER is invalid (%s): %v\n", projectNumStr, err)
+		return
+	}
+
+	wrapperClient := ghWrapper.NewClient(githubToken)
+
+	// Get Project ID
+	projectID := "4"
+
+	// List all items on the board
+	items, err := wrapperClient.ListProjectV2Items(ctx, projectID)
+	if err != nil {
+		fmt.Printf("❌ Error listing project items: %v\n", err)
+		return
+	}
+
+	// Get status field options to update status later
+	statusFieldID, options, err := wrapperClient.GetProjectV2StatusOptions(ctx, projectID)
+	if err != nil {
+		fmt.Printf("❌ Error getting status options: %v\n", err)
+		return
+	}
+
+	found := false
+	for _, item := range items {
+		statusNormalized := strings.ToLower(item.Status)
+		if statusNormalized == "todo" || statusNormalized == "backlog" {
+			fmt.Printf(" [Kanban Polling]: Found task in '%s' status: #%d - '%s'\n", item.Status, item.Number, item.Title)
+			found = true
+
+			// Resolve TEST_DIR dynamically for this item's repository
+			orchestratorRepo := os.Getenv("GITHUB_REPOSITORY")
+			var orchestratorRealName string
+			if parts := strings.Split(orchestratorRepo, "/"); len(parts) == 2 {
+				orchestratorRealName = parts[1]
+			} else {
+				orchestratorRealName = orchestratorRepo
+			}
+
+			productRepoDir := os.Getenv("TEST_DIR")
+			if (productRepoDir == "" || productRepoDir == ".") && item.RepoName != "" && item.RepoName != orchestratorRealName {
+				productRepoDir = item.RepoName
+				os.Setenv("TEST_DIR", productRepoDir)
+			}
+
+			if productRepoDir != "" && productRepoDir != "." {
+				if _, err := os.Stat(filepath.Join(productRepoDir, ".git")); os.IsNotExist(err) {
+					fmt.Printf(" [Kanban Polling]: Product repository directory %s does not exist. Cloning...\n", productRepoDir)
+					cloneURL := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git", githubToken, item.RepoOwner, item.RepoName)
+					if err := runGitCommand(".", "clone", cloneURL, productRepoDir); err != nil {
+						fmt.Printf("❌ Failed to clone Product Repository: %v\n", err)
+						continue
+					}
+				}
+			}
+
+			// Run Developer Agent on this item!
+			runDeveloperAgentOnKanban(ctx, ghClient, wrapperClient, githubToken, item, projectID, statusFieldID, options)
+		}
+	}
+	if !found {
+		fmt.Println(" [Kanban Polling]: No tasks found in 'Todo' or 'Backlog' status.")
 	}
 }
