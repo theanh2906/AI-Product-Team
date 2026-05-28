@@ -322,8 +322,9 @@ func main() {
 					issueBody := fmt.Sprintf("%s\n\n---\n*Task assigned to: %s*\n*Expected branch: `%s`*\n*Parent Branch: `%s`*", task.Description, task.Assignee, task.BranchName, parentBranchName)
 
 					issueReq := &github.IssueRequest{
-						Title: github.String(issueTitle),
-						Body:  github.String(issueBody),
+						Title:  github.String(issueTitle),
+						Body:   github.String(issueBody),
+						Labels: &[]string{"ai-process", fmt.Sprintf("repo:%s", productRepoName)},
 					}
 
 					createdIssue, _, err := ghClient.Issues.Create(ctx, owner, productRepoName, issueReq)
@@ -719,8 +720,9 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 		// Create new Issue
 		issueTitle := fmt.Sprintf("[%s] %s", task.Assignee, task.Title)
 		issueReq := &github.IssueRequest{
-			Title: github.String(issueTitle),
-			Body:  github.String(task.Description),
+			Title:  github.String(issueTitle),
+			Body:   github.String(task.Description),
+			Labels: &[]string{"ai-process", fmt.Sprintf("repo:%s", details.RepoName)},
 		}
 
 		createdIssue, _, err := ghClient.Issues.Create(ctx, details.RepoOwner, details.RepoName, issueReq)
