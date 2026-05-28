@@ -254,10 +254,16 @@ func main() {
 
 	// 3.3 Iterate through the task array to create each corresponding branch
 	createdBranchesReport := "\n###  Git Branch Initialization Status in Product Repo:\n"
+	seenBranches := make(map[string]bool)
 
 	for _, task := range aiResult.Tasks {
 		// Normalize branch name (remove spaces if the AI accidentally creates an invalid name)
 		cleanBranchName := strings.ReplaceAll(task.BranchName, " ", "-")
+
+		if seenBranches[cleanBranchName] {
+			continue
+		}
+		seenBranches[cleanBranchName] = true
 
 		// Define the Ref structure on GitHub (must have the "refs/heads/" prefix)
 		refString := fmt.Sprintf("refs/heads/%s", cleanBranchName)
