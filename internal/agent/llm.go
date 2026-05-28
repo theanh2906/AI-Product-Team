@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/theanh2906/AI-Product-Team/internal/monitor"
 )
 
 // LLMClient wraps the HTTP calls to GitHub Models API (OpenAI compatible)
@@ -58,6 +61,8 @@ type ChatResponse struct {
 
 // GenerateContent sends a chat request to GitHub Models and returns the string response
 func (c *LLMClient) GenerateContent(ctx context.Context, systemInstruction, prompt string, jsonSchema *JSONSchema) (string, error) {
+	startedAt := time.Now()
+
 	reqBody := ChatRequest{
 		Model: c.Model,
 		Messages: []Message{
@@ -110,5 +115,24 @@ func (c *LLMClient) GenerateContent(ctx context.Context, systemInstruction, prom
 		return "", fmt.Errorf("no choices returned by model")
 	}
 
-	return chatResp.Choices[0].Message.Content, nil
+	result := chatResp.Choices[0].Message.Content
+
+	usage := monitor.Record(
+		"LLM Agent",
+		c.Model,
+		systemInstruction+"\n"+prompt,
+		result,
+		startedAt,
+	)
+
+	fmt.Printf(
+		"\n[AI Monitor] Model=%s Input=%d Output=%d Cost=$%.6f Duration=%dms\n",
+		usage.Model,
+		usage.InputTokens,
+		usage.OutputTokens,
+		usage.EstimatedUSD,
+		usage.DurationMs,
+	)
+
+	return result, nil
 }
