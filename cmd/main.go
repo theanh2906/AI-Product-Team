@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -81,6 +82,23 @@ func main() {
 		orchestratorRealName = orchestratorRepo
 	}
 	issueNumber, _ := strconv.Atoi(issueNumStr)
+	// 1.3 Determine product repo dir and auto-clone if needed
+	productRepoDir := os.Getenv("TEST_DIR")
+	if (productRepoDir == "" || productRepoDir == ".") && productRepoName != "" && productRepoName != orchestratorRealName {
+		productRepoDir = productRepoName
+		os.Setenv("TEST_DIR", productRepoDir)
+	}
+
+	if productRepoDir != "" && productRepoDir != "." {
+		if _, err := os.Stat(filepath.Join(productRepoDir, ".git")); os.IsNotExist(err) {
+			fmt.Printf(" [System]: Product repository directory %s does not exist. Cloning...\n", productRepoDir)
+			cloneURL := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git", githubToken, owner, productRepoName)
+			if err := runGitCommand(".", "clone", cloneURL, productRepoDir); err != nil {
+				fmt.Printf("❌ Failed to clone Product Repository: %v\n", err)
+				os.Exit(1)
+			}
+		}
+	}
 
 	// 1.2 Check if running in Kanban State-Machine mode (PROJECT_ITEM_ID)
 	projectItemID := os.Getenv("PROJECT_ITEM_ID")
@@ -488,6 +506,32 @@ func runKanbanStateMachineFlow(ctx context.Context, ghClient *github.Client, git
 	}
 
 	fmt.Printf(" [Kanban Router]: Card belongs to repo %s/%s, current column status: '%s'\n", details.RepoOwner, details.RepoName, details.Status)
+
+	// 1.1 Determine product repo dir and auto-clone if needed
+	orchestratorRepo := os.Getenv("GITHUB_REPOSITORY")
+	var orchestratorRealName string
+	if parts := strings.Split(orchestratorRepo, "/"); len(parts) == 2 {
+		orchestratorRealName = parts[1]
+	} else {
+		orchestratorRealName = orchestratorRepo
+	}
+
+	productRepoDir := os.Getenv("TEST_DIR")
+	if (productRepoDir == "" || productRepoDir == ".") && details.RepoName != "" && details.RepoName != orchestratorRealName {
+		productRepoDir = details.RepoName
+		os.Setenv("TEST_DIR", productRepoDir)
+	}
+
+	if productRepoDir != "" && productRepoDir != "." {
+		if _, err := os.Stat(filepath.Join(productRepoDir, ".git")); os.IsNotExist(err) {
+			fmt.Printf(" [Kanban Router]: Product repository directory %s does not exist. Cloning...\n", productRepoDir)
+			cloneURL := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git", githubToken, details.RepoOwner, details.RepoName)
+			if err := runGitCommand(".", "clone", cloneURL, productRepoDir); err != nil {
+				fmt.Printf("❌ Failed to clone Product Repository: %v\n", err)
+				os.Exit(1)
+			}
+		}
+	}
 
 	// Get Project ID
 	projectID := "4"
