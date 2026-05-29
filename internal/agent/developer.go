@@ -47,15 +47,34 @@ func (d *Developer) DevelopTask(ctx context.Context, ghClient *github.Client, gi
 	}
 	aiClient := NewLLMClient(githubToken, modelName)
 
-	projectContext := getProjectContext(productRepoDir)
-	relevantFilesContent := getRelevantFilesContent(productRepoDir, taskTitle, taskDescription)
+	var projectContext string
+	var relevantFilesContent string
+	var repomixContext string
+	var errRepomix error
+
+	fmt.Printf(" [%s]: Running Repomix to bundle codebase context...\n", d.Name)
+	repomixContext, errRepomix = runRepomix(productRepoDir)
+	if errRepomix != nil {
+		fmt.Printf("⚠️ Warning: Repomix failed: %v. Falling back to local directory scanner.\n", errRepomix)
+		projectContext = getProjectContext(productRepoDir)
+		relevantFilesContent = getRelevantFilesContent(productRepoDir, taskTitle, taskDescription)
+	} else {
+		fmt.Printf("✅ [%s]: Codebase successfully bundled using Repomix!\n", d.Name)
+	}
 
 	systemInstruction := `You are a Senior Fullstack Engineer with excellent skills in writing clean and optimized code.
 Your task is to read the development requirement or bug report, analyze the provided project context (file tree, file types, reference code), and design/write the source file changes needed.
 You MUST write code matching the existing project's language, file extensions (e.g., .tsx for React TypeScript components, .ts for TypeScript modules, .go for Go, etc.), directory structure, and coding style.
 Do not use placeholders or write stub code; the source code must be immediately runnable and complete.`
 
-	prompt := fmt.Sprintf("Here is the project context and file structure:\n%s\n%s\n\nPlease resolve the following task:\nTitle: %s\nDetailed requirements:\n%s\n\nReturn the list of corresponding source file changes.", projectContext, relevantFilesContent, taskTitle, taskDescription)
+	var codebaseContext string
+	if repomixContext != "" {
+		codebaseContext = fmt.Sprintf("### Repomix Codebase Bundle\nHere is the bundled codebase context including existing file tree and files contents:\n\n%s", repomixContext)
+	} else {
+		codebaseContext = fmt.Sprintf("Here is the project context and file structure:\n%s\n%s", projectContext, relevantFilesContent)
+	}
+
+	prompt := fmt.Sprintf("%s\n\nPlease resolve the following task:\nTitle: %s\nDetailed requirements:\n%s\n\nReturn the list of corresponding source file changes.", codebaseContext, taskTitle, taskDescription)
 
 	schema := &JSONSchema{
 		Name:   "developer_response",
@@ -335,4 +354,40 @@ func getRelevantFilesContent(productRepoDir string, taskTitle string, taskDescri
 	}
 
 	return sb.String()
+}
+
+// runRepomix executes Repomix to bundle the codebase context, ignoring unnecessary folders
+func runRepomix(productRepoDir string) (string, error) {
+	if productRepoDir == "" || productRepoDir == "." {
+		return "", fmt.Errorf("invalid product repo dir")
+	}
+
+	outputFile := filepath.Join(productRepoDir, "repomix-output.txt")
+	_ = os.Remove(outputFile)
+
+	npxCmd, npxArgs := getNpxCommand()
+	args := append(npxArgs, "-y", "repomix", "--output", "repomix-output.txt", "--ignore", "**/.agents/**/*,**/.github/**/*,**/.vscode/**/*,**/.idea/**/*,**/package-lock.json,**/yarn.lock,**/pnpm-lock.yaml")
+
+	cmd := exec.Command(npxCmd, args...)
+	cmd.Dir = productRepoDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("npx repomix failed: %w, output: %s", err, string(output))
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read repomix output: %w", err)
+	}
+
+	_ = os.Remove(outputFile)
+	return string(data), nil
+}
+
+// getNpxCommand resolves NPX command name depending on the operating system
+func getNpxCommand() (string, []string) {
+	if os.PathSeparator == '\\' {
+		return "cmd", []string{"/c", "npx"}
+	}
+	return "npx", []string{}
 }
