@@ -238,7 +238,7 @@ func getProjectContext(productRepoDir string) string {
 
 		if info.IsDir() {
 			dirName := info.Name()
-			if dirName == ".git" || dirName == "node_modules" || dirName == "dist" || dirName == "build" || dirName == ".next" || dirName == "out" {
+			if strings.HasPrefix(dirName, ".") || dirName == "node_modules" || dirName == "dist" || dirName == "build" || dirName == ".next" || dirName == "out" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -281,17 +281,20 @@ func getRelevantFilesContent(productRepoDir string, taskTitle string, taskDescri
 	
 	var matchedFiles []string
 	_ = filepath.Walk(productRepoDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return nil
+		}
+
+		if info.IsDir() {
+			dirName := info.Name()
+			if strings.HasPrefix(dirName, ".") || dirName == "node_modules" || dirName == "dist" || dirName == "build" || dirName == ".next" || dirName == "out" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		
 		rel, err := filepath.Rel(productRepoDir, path)
 		if err != nil {
-			return nil
-		}
-
-		dirName := filepath.Dir(rel)
-		if strings.HasPrefix(rel, ".") || strings.Contains(dirName, "node_modules") || strings.Contains(dirName, "dist") || strings.Contains(dirName, "build") || strings.Contains(dirName, ".next") {
 			return nil
 		}
 
