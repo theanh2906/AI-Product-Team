@@ -56,6 +56,7 @@ jobs:
         env:
           # Truyền các biến cần thiết cho Go app
           GITHUB_TOKEN: ${{ secrets.TEAM_GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PROJECT_ITEM_ID: ${{ github.event.inputs.project_item_id }}
           PRODUCT_REPO_NAME: ${{ steps.extract_repo.outputs.PRODUCT_REPO }}
