@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	ghWrapper "github.com/theanh2906/AI-Product-Team/internal/github"
+
 	"github.com/google/go-github/v60/github"
 )
 
@@ -40,76 +42,56 @@ func NewDeveloper() *Developer {
 func (d *Developer) DevelopTask(ctx context.Context, ghClient *github.Client, githubToken string, owner, repo string, issueNumber int, taskTitle string, taskDescription string, productRepoDir string, branchName string) (string, error) {
 	fmt.Printf(" [%s]: Researching task #%d: '%s'...\n", d.Name, issueNumber, taskTitle)
 
-	// 1. Call GitHub Models API to generate source code
+	// 1. Build the Gemini client
 	modelName := os.Getenv("DEVELOPER_MODEL")
 	if modelName == "" {
 		modelName = os.Getenv("AI_MODEL")
 	}
-	aiClient := NewLLMClient(githubToken, modelName)
+	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
+	aiClient := NewGeminiClient(geminiAPIKey, modelName)
 
-	var projectContext string
-	var relevantFilesContent string
-	var repomixContext string
-	var errRepomix error
-
-	fmt.Printf(" [%s]: Running Repomix to bundle codebase context...\n", d.Name)
-	repomixContext, errRepomix = runRepomix(productRepoDir)
-	if errRepomix != nil {
-		fmt.Printf("⚠️ Warning: Repomix failed: %v. Falling back to local directory scanner.\n", errRepomix)
-		projectContext = getProjectContext(productRepoDir)
-		relevantFilesContent = getRelevantFilesContent(productRepoDir, taskTitle, taskDescription)
-	} else {
-		fmt.Printf("✅ [%s]: Codebase successfully bundled using Repomix!\n", d.Name)
+	// 2. Build a GitHub tool handler that reads files from the product repo
+	ghReader := ghWrapper.NewClient(githubToken)
+	toolHandler := func(name string, args map[string]interface{}) (string, error) {
+		path, _ := args["path"].(string)
+		switch name {
+		case "list_files":
+			entries, err := ghReader.ListFiles(ctx, owner, repo, path)
+			if err != nil {
+				return "", err
+			}
+			return strings.Join(entries, "\n"), nil
+		case "get_file_content":
+			return ghReader.GetFileContent(ctx, owner, repo, path)
+		default:
+			return "", fmt.Errorf("unknown tool: %s", name)
+		}
 	}
 
 	systemInstruction := `You are a Senior Fullstack Engineer with excellent skills in writing clean and optimized code.
-Your task is to read the development requirement or bug report, analyze the provided project context (file tree, file types, reference code), and design/write the source file changes needed.
-You MUST write code matching the existing project's language, file extensions (e.g., .tsx for React TypeScript components, .ts for TypeScript modules, .go for Go, etc.), directory structure, and coding style.
-Do not use placeholders or write stub code; the source code must be immediately runnable and complete.`
+Your task is to read the development requirement or bug report, explore the repository structure using the provided tools, and design/write the source file changes needed.
+Use list_files to discover the project structure, then get_file_content to read relevant files before writing code.
+You MUST write code matching the existing project's language, file extensions, directory structure, and coding style.
+Do not use placeholders or write stub code; the source code must be immediately runnable and complete.
+When you have finished reading the codebase and are ready to respond, return ONLY a valid JSON object (no markdown fences) with this exact structure:
+{"explanation":"...","changes":[{"path":"...","content":"..."}]}`
 
-	var codebaseContext string
-	if repomixContext != "" {
-		codebaseContext = fmt.Sprintf("### Repomix Codebase Bundle\nHere is the bundled codebase context including existing file tree and files contents:\n\n%s", repomixContext)
-	} else {
-		codebaseContext = fmt.Sprintf("Here is the project context and file structure:\n%s\n%s", projectContext, relevantFilesContent)
-	}
+	prompt := fmt.Sprintf("Please resolve the following task:\nTitle: %s\nDetailed requirements:\n%s\n\nRepository: %s/%s\n\nStart by listing the repository root to understand the project structure, then read relevant files before generating the solution.", taskTitle, taskDescription, owner, repo)
 
-	prompt := fmt.Sprintf("%s\n\nPlease resolve the following task:\nTitle: %s\nDetailed requirements:\n%s\n\nReturn the list of corresponding source file changes.", codebaseContext, taskTitle, taskDescription)
-
-	schema := &JSONSchema{
-		Name:   "developer_response",
-		Strict: true,
-		Schema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"explanation": map[string]interface{}{
-					"type": "string",
-				},
-				"changes": map[string]interface{}{
-					"type": "array",
-					"items": map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"path": map[string]interface{}{
-								"type": "string",
-							},
-							"content": map[string]interface{}{
-								"type": "string",
-							},
-						},
-						"required":             []string{"path", "content"},
-						"additionalProperties": false,
-					},
-				},
-			},
-			"required":             []string{"explanation", "changes"},
-			"additionalProperties": false,
-		},
-	}
-
-	respText, err := aiClient.GenerateContent(ctx, systemInstruction, prompt, schema)
+	fmt.Printf(" [%s]: Sending task to Gemini with GitHub code tools...\n", d.Name)
+	respText, err := aiClient.GenerateWithTools(ctx, systemInstruction, prompt, GitHubCodeTools, toolHandler)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate code from GitHub Models: %w", err)
+		return "", fmt.Errorf("failed to generate code from Gemini: %w", err)
+	}
+
+	// Strip markdown code fences if present
+	respText = strings.TrimSpace(respText)
+	if strings.HasPrefix(respText, "```") {
+		if idx := strings.Index(respText, "\n"); idx != -1 {
+			respText = respText[idx+1:]
+		}
+		respText = strings.TrimSuffix(respText, "```")
+		respText = strings.TrimSpace(respText)
 	}
 
 	var devResult DeveloperResponse
@@ -233,161 +215,4 @@ func runGitCommand(dir string, args ...string) error {
 		return fmt.Errorf("git %v failed: %w, output: %s", args, err, string(output))
 	}
 	return nil
-}
-
-// getProjectContext scans the repository directory to build a file list and detect file extensions
-func getProjectContext(productRepoDir string) string {
-	if productRepoDir == "" || productRepoDir == "." {
-		return ""
-	}
-
-	var fileList []string
-	var extensions = make(map[string]int)
-	maxFiles := 150
-
-	_ = filepath.Walk(productRepoDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		
-		rel, err := filepath.Rel(productRepoDir, path)
-		if err != nil || rel == "." {
-			return nil
-		}
-
-		if info.IsDir() {
-			dirName := info.Name()
-			if strings.HasPrefix(dirName, ".") || dirName == "node_modules" || dirName == "dist" || dirName == "build" || dirName == ".next" || dirName == "out" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(info.Name()))
-		if ext != "" {
-			extensions[ext]++
-		}
-
-		if len(fileList) < maxFiles {
-			fileList = append(fileList, rel)
-		}
-		return nil
-	})
-
-	var extStrings []string
-	for ext, count := range extensions {
-		extStrings = append(extStrings, fmt.Sprintf("%s (%d files)", ext, count))
-	}
-
-	sb := strings.Builder{}
-	sb.WriteString("### Product Repository File Types\n")
-	sb.WriteString(fmt.Sprintf("- Primary file types found: %s\n", strings.Join(extStrings, ", ")))
-	sb.WriteString("\n### Existing File Tree (Subset):\n")
-	for _, f := range fileList {
-		sb.WriteString(fmt.Sprintf("- %s\n", f))
-	}
-
-	return sb.String()
-}
-
-// getRelevantFilesContent matches keywords in task to read existing code files and provide them as context
-func getRelevantFilesContent(productRepoDir string, taskTitle string, taskDescription string) string {
-	if productRepoDir == "" || productRepoDir == "." {
-		return ""
-	}
-
-	content := strings.ToLower(taskTitle + " " + taskDescription)
-	
-	var matchedFiles []string
-	_ = filepath.Walk(productRepoDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-
-		if info.IsDir() {
-			dirName := info.Name()
-			if strings.HasPrefix(dirName, ".") || dirName == "node_modules" || dirName == "dist" || dirName == "build" || dirName == ".next" || dirName == "out" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		
-		rel, err := filepath.Rel(productRepoDir, path)
-		if err != nil {
-			return nil
-		}
-
-		fileNameLower := strings.ToLower(info.Name())
-		nameWithoutExt := strings.TrimSuffix(fileNameLower, filepath.Ext(fileNameLower))
-		
-		if len(nameWithoutExt) > 3 && strings.Contains(content, nameWithoutExt) {
-			matchedFiles = append(matchedFiles, rel)
-		}
-		
-		return nil
-	})
-
-	if len(matchedFiles) > 5 {
-		matchedFiles = matchedFiles[:5]
-	}
-
-	if len(matchedFiles) == 0 {
-		return ""
-	}
-
-	sb := strings.Builder{}
-	sb.WriteString("\n### Reference Source Code of Relevant Existing Files\n")
-	for _, relPath := range matchedFiles {
-		fullPath := filepath.Join(productRepoDir, relPath)
-		fileData, err := os.ReadFile(fullPath)
-		if err != nil {
-			continue
-		}
-		
-		lines := strings.Split(string(fileData), "\n")
-		if len(lines) > 400 {
-			lines = lines[:400]
-			lines = append(lines, "... (content truncated for length) ...")
-		}
-		
-		sb.WriteString(fmt.Sprintf("File: `%s`\n```\n%s\n```\n\n", relPath, strings.Join(lines, "\n")))
-	}
-
-	return sb.String()
-}
-
-// runRepomix executes Repomix to bundle the codebase context, ignoring unnecessary folders
-func runRepomix(productRepoDir string) (string, error) {
-	if productRepoDir == "" || productRepoDir == "." {
-		return "", fmt.Errorf("invalid product repo dir")
-	}
-
-	outputFile := filepath.Join(productRepoDir, "repomix-output.txt")
-	_ = os.Remove(outputFile)
-
-	npxCmd, npxArgs := getNpxCommand()
-	args := append(npxArgs, "-y", "repomix", "--output", "repomix-output.txt", "--ignore", "**/.agents/**/*,**/.github/**/*,**/.vscode/**/*,**/.idea/**/*,**/package-lock.json,**/yarn.lock,**/pnpm-lock.yaml")
-
-	cmd := exec.Command(npxCmd, args...)
-	cmd.Dir = productRepoDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("npx repomix failed: %w, output: %s", err, string(output))
-	}
-
-	data, err := os.ReadFile(outputFile)
-	if err != nil {
-		return "", fmt.Errorf("failed to read repomix output: %w", err)
-	}
-
-	_ = os.Remove(outputFile)
-	return string(data), nil
-}
-
-// getNpxCommand resolves NPX command name depending on the operating system
-func getNpxCommand() (string, []string) {
-	if os.PathSeparator == '\\' {
-		return "cmd", []string{"/c", "npx"}
-	}
-	return "npx", []string{}
 }

@@ -52,15 +52,16 @@ func (qa *QAAgent) RunTests(ctx context.Context, testCommand string) (string, bo
 	return outputStr, true, nil
 }
 
-// DiagnoseFailure uses the GitHub Models API to analyze error logs and suggest fixes
+// DiagnoseFailure uses Gemini to analyze error logs and suggest fixes
 func (qa *QAAgent) DiagnoseFailure(ctx context.Context, githubToken string, testLog string, taskTitle string) (string, error) {
-	fmt.Printf(" [%s]: Sending test log to GitHub Models for failure diagnosis...\n", qa.Name)
+	fmt.Printf(" [%s]: Sending test log to Gemini for failure diagnosis...\n", qa.Name)
 
 	modelName := os.Getenv("QA_MODEL")
 	if modelName == "" {
 		modelName = os.Getenv("AI_MODEL")
 	}
-	aiClient := NewLLMClient(githubToken, modelName)
+	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
+	aiClient := NewGeminiClient(geminiAPIKey, modelName)
 
 	systemInstruction := `You are an outstanding AI QA Engineer, an expert in software testing and debugging.
 Your task is to read the test failure log from the CI/CD system, analyze why the tests failed, identify the suspicious files/lines of code causing the failure, and suggest detailed, easy-to-understand fix solutions for the developer.`
@@ -69,7 +70,7 @@ Your task is to read the test failure log from the CI/CD system, analyze why the
 
 	respText, err := aiClient.GenerateContent(ctx, systemInstruction, prompt, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate diagnosis from GitHub Models: %w", err)
+		return "", fmt.Errorf("failed to generate diagnosis from Gemini: %w", err)
 	}
 
 	return respText, nil

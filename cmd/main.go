@@ -158,13 +158,14 @@ func main() {
 		return
 	}
 
-	// 2. Call GitHub Models API (Team Lead)
-	fmt.Println(" [Team Lead Agent]: Sending context to GitHub Models for analysis...")
+	// 2. Call Gemini API (Team Lead)
+	fmt.Println(" [Team Lead Agent]: Sending context to Gemini for analysis...")
 	modelName := os.Getenv("TEAM_LEAD_MODEL")
 	if modelName == "" {
 		modelName = os.Getenv("AI_MODEL")
 	}
-	aiClient := agent.NewLLMClient(githubToken, modelName)
+	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
+	aiClient := agent.NewGeminiClient(geminiAPIKey, modelName)
 
 	systemInstruction := `You are an outstanding AI Team Lead and Business Analyst (PM). Your task is to break down Issues into detailed technical Tasks in JSON format. Assign all technical development tasks (assignee) to "Senior Fullstack Engineer".`
 	prompt := fmt.Sprintf("Please analyze the following request from PM Ben:\nTitle: %s\nDetailed content:\n%s", issueTitle, issueBody)
@@ -212,7 +213,7 @@ func main() {
 
 	respText, err := aiClient.GenerateContent(ctx, systemInstruction, prompt, schema)
 	if err != nil {
-		fmt.Printf("❌ GitHub Models call error: %v\n", err)
+		fmt.Printf("❌ Gemini API call error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -408,11 +409,11 @@ func runQAAgentFlow(ctx context.Context, ghClient *github.Client, githubToken, o
 		reportBody = fmt.Sprintf(" **[AI QA Agent Report]**\n\n✅ **Tests PASSED! (QA Passed)**\n\n- **Command:** `%s`\n\n### ️ Test Log Details:\n```text\n%s\n```", testCommand, testLog)
 		targetStatus = "done"
 	} else {
-		// Test Failed -> Call GitHub Models for failure diagnosis
+		// Test Failed -> Call Gemini for failure diagnosis
 		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, githubToken, testLog, issueTitle)
 		if diagErr != nil {
-			fmt.Printf("⚠️ Warning: Failed to call GitHub Models for failure diagnosis: %v\n", diagErr)
-			diagnosis = "*(Could not retrieve automatic failure diagnosis from GitHub Models)*"
+			fmt.Printf("⚠️ Warning: Failed to call Gemini for failure diagnosis: %v\n", diagErr)
+			diagnosis = "*(Could not retrieve automatic failure diagnosis from Gemini)*"
 		}
 
 		// 3.1 Create a new bug report Issue
@@ -639,7 +640,8 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 	if modelName == "" {
 		modelName = os.Getenv("AI_MODEL")
 	}
-	aiClient := agent.NewLLMClient(githubToken, modelName)
+	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
+	aiClient := agent.NewGeminiClient(geminiAPIKey, modelName)
 
 	systemInstruction := `You are an outstanding AI Team Lead and Business Analyst (PM). Your task is to break down Issues into detailed technical Tasks in JSON format. Assign all technical development tasks (assignee) to "Senior Fullstack Engineer".`
 	prompt := fmt.Sprintf("Please analyze the following request from PM Ben:\nTitle: %s\nDetailed content:\n%s", details.Title, details.Body)
@@ -687,7 +689,7 @@ func runTeamLeadAgentOnKanban(ctx context.Context, ghClient *github.Client, wrap
 
 	respText, err := aiClient.GenerateContent(ctx, systemInstruction, prompt, schema)
 	if err != nil {
-		fmt.Printf("❌ GitHub Models call error: %v\n", err)
+		fmt.Printf("❌ Gemini API call error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -890,10 +892,10 @@ func runQAAgentOnKanban(ctx context.Context, ghClient *github.Client, wrapperCli
 		reportBody = fmt.Sprintf(" **[AI QA Agent Report]**\n\n✅ **Tests PASSED! (QA Passed)**\n\n- **Command:** `%s`\n- **Test branch:** `%s`\n\n### ️ Test Log Details:\n```text\n%s\n```", testCommand, branchName, testLog)
 		targetStatus = "done"
 	} else {
-		// Call GitHub Models to analyze the failure log
+		// Call Gemini to analyze the failure log
 		diagnosis, diagErr := qaAgent.DiagnoseFailure(ctx, githubToken, testLog, details.Title)
 		if diagErr != nil {
-			diagnosis = "*(Could not retrieve automatic failure diagnosis from GitHub Models)*"
+			diagnosis = "*(Could not retrieve automatic failure diagnosis from Gemini)*"
 		}
 
 		// Create a new Bug Issue and add to Kanban

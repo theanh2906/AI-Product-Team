@@ -3,11 +3,13 @@ package github
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 )
 
 // Issue represents GitHub issue details.
@@ -135,4 +137,90 @@ func (c *Client) CreateIssue(ctx context.Context, owner, repo, title, body strin
 	}
 
 	return &issue, nil
+}
+
+// repoContent represents a single entry returned by the GitHub Contents API.
+type repoContent struct {
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+}
+
+// GetFileContent fetches and decodes the text content of a file in a GitHub repository.
+func (c *Client) GetFileContent(ctx context.Context, owner, repo, path string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, path)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "Mini-AI-Orchestrator")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch file content: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("GitHub API returned status %d for %s: %s", resp.StatusCode, path, string(body))
+	}
+
+	var entry repoContent
+	if err := json.NewDecoder(resp.Body).Decode(&entry); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if entry.Encoding != "base64" {
+		return "", fmt.Errorf("unexpected encoding %q for file %s", entry.Encoding, path)
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(entry.Content, "\n", ""))
+	if err != nil {
+		return "", fmt.Errorf("failed to decode base64 content: %w", err)
+	}
+	return string(decoded), nil
+}
+
+// ListFiles lists the paths of entries (files and directories) at the given path.
+// Directories are suffixed with '/'.
+func (c *Client) ListFiles(ctx context.Context, owner, repo, path string) ([]string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, path)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "Mini-AI-Orchestrator")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API returned status %d for path %q: %s", resp.StatusCode, path, string(body))
+	}
+
+	var entries []repoContent
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return nil, fmt.Errorf("failed to decode directory listing: %w", err)
+	}
+
+	result := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Type == "dir" {
+			result = append(result, e.Path+"/")
+		} else {
+			result = append(result, e.Path)
+		}
+	}
+	return result, nil
 }
