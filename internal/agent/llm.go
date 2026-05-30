@@ -19,7 +19,7 @@ type LLMClient struct {
 // NewLLMClient creates a client pointing to GitHub Models
 func NewLLMClient(token, model string) *LLMClient {
 	if model == "" {
-		model = "openai/gpt-5-mini" // Default model, extremely fast and cost-efficient
+		model = "gpt-5" // Default model, extremely fast and cost-efficient
 	}
 	return &LLMClient{
 		Token:   token,
