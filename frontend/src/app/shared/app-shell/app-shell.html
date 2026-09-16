@@ -1,11 +1,23 @@
-<div class="app-shell">
+<div class="app-shell" [class.sidebar-collapsed]="sidebarCollapsed()">
   <aside class="sidebar" aria-label="Primary navigation">
-    <a class="brand" routerLink="/work-items" queryParamsHandling="preserve" aria-label="ProductCrew home">
-      <img class="brand-mark" src="/assets/brand/product-team-logo-64.png" alt="" width="28" height="28">
-      <span class="brand-copy"><strong>ProductCrew</strong><small>{{ appVersion() }}</small></span>
-    </a>
+    <div class="brand-row">
+      <a class="brand" routerLink="/work-items" queryParamsHandling="preserve" aria-label="ProductCrew home" title="ProductCrew home">
+        <img class="brand-mark" src="/assets/brand/product-team-logo-64.png" alt="" width="28" height="28">
+        <span class="brand-copy"><strong>ProductCrew</strong><small>{{ appVersion() }}</small></span>
+      </a>
+      <button
+        type="button"
+        class="sidebar-collapse-toggle"
+        [attr.aria-label]="sidebarCollapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+        [attr.aria-pressed]="sidebarCollapsed()"
+        [attr.title]="sidebarCollapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+        (click)="toggleSidebar()"
+      >
+        <span class="material-symbols-rounded">{{ sidebarCollapsed() ? 'keyboard_double_arrow_right' : 'keyboard_double_arrow_left' }}</span>
+      </button>
+    </div>
 
-    <label class="global-project-switcher">
+    <label class="global-project-switcher" [attr.title]="selectedProjectTitle()">
       <span>Active project</span>
       <div>
         <span class="material-symbols-rounded">folder_open</span>
@@ -27,18 +39,18 @@
     </label>
 
     <nav class="nav-list">
-      <a routerLink="/features" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">layers</span>Features</a>
-      <a routerLink="/work-items" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">view_kanban</span>Work board</a>
-      <a routerLink="/projects" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">folder_open</span>Projects</a>
-      <a routerLink="/project-atlas" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">account_tree</span>Project Atlas</a>
-      <a routerLink="/source-scan" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">bug_report</span>Bug Scanner</a>
-      <a routerLink="/feature-radar" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">radar</span>Feature Radar</a>
-      <a routerLink="/observability" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">monitoring</span>Observability</a>
-      <a routerLink="/settings" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">settings</span>Settings</a>
+      <a routerLink="/features" queryParamsHandling="preserve" routerLinkActive="active" title="Features"><span class="material-symbols-rounded">layers</span><span class="nav-copy">Features</span></a>
+      <a routerLink="/work-items" queryParamsHandling="preserve" routerLinkActive="active" title="Work board"><span class="material-symbols-rounded">view_kanban</span><span class="nav-copy">Work board</span></a>
+      <a routerLink="/projects" queryParamsHandling="preserve" routerLinkActive="active" title="Projects"><span class="material-symbols-rounded">folder_open</span><span class="nav-copy">Projects</span></a>
+      <a routerLink="/project-atlas" queryParamsHandling="preserve" routerLinkActive="active" title="Project Atlas"><span class="material-symbols-rounded">account_tree</span><span class="nav-copy">Project Atlas</span></a>
+      <a routerLink="/source-scan" queryParamsHandling="preserve" routerLinkActive="active" title="Bug Scanner"><span class="material-symbols-rounded">bug_report</span><span class="nav-copy">Bug Scanner</span></a>
+      <a routerLink="/feature-radar" queryParamsHandling="preserve" routerLinkActive="active" title="Feature Radar"><span class="material-symbols-rounded">radar</span><span class="nav-copy">Feature Radar</span></a>
+      <a routerLink="/observability" queryParamsHandling="preserve" routerLinkActive="active" title="Observability"><span class="material-symbols-rounded">monitoring</span><span class="nav-copy">Observability</span></a>
+      <a routerLink="/settings" queryParamsHandling="preserve" routerLinkActive="active" title="Settings"><span class="material-symbols-rounded">settings</span><span class="nav-copy">Settings</span></a>
     </nav>
 
     <div class="notification-control">
-      <button type="button" class="notification-toggle" (click)="toggleNotifications($event)" [attr.aria-expanded]="notificationPanelOpen()" aria-label="Open notifications">
+      <button type="button" class="notification-toggle" (click)="toggleNotifications($event)" [attr.aria-expanded]="notificationPanelOpen()" aria-label="Open notifications" title="Notifications">
         <span class="material-symbols-rounded">notifications</span>
         <span>Notifications</span>
         @if (notifications.unreadCount() > 0) { <b>{{ notifications.unreadCount() > 99 ? '99+' : notifications.unreadCount() }}</b> }
@@ -82,6 +94,7 @@
       [disabled]="theme.saving()"
       (click)="theme.toggle()"
       [attr.aria-label]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'"
+      [attr.title]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'"
     >
       <span class="material-symbols-rounded" aria-hidden="true">{{ theme.isDark() ? 'light_mode' : 'dark_mode' }}</span>
       <span>{{ theme.isDark() ? 'Light mode' : 'Dark mode' }}</span>
@@ -93,6 +106,7 @@
       [class.checking]="runtimeHealth.status() === null"
       [class.unavailable]="runtimeHealth.status()?.state === 'unavailable'"
       [class.unreachable]="runtimeHealth.status()?.state === 'unreachable'"
+      [attr.title]="runtimeStatusTitle()"
       role="status"
       aria-live="polite"
     >

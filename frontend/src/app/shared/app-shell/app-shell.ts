@@ -10,6 +10,8 @@ import { RuntimeHealthService } from '../../core/runtime-health.service';
 import { ThemeService } from '../../core/theme.service';
 import { ProjectContextService } from '../../core/project-context.service';
 
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'productcrew.sidebar-collapsed';
+
 @Component({
   selector: 'app-shell',
   imports: [DatePipe, FormsModule, RouterLink, RouterLinkActive],
@@ -25,6 +27,7 @@ export class AppShell {
   private readonly router = inject(Router);
   readonly notificationPanelOpen = signal(false);
   readonly appVersion = signal('Development build');
+  readonly sidebarCollapsed = signal(this.readSidebarCollapsed());
 
   constructor() {
     this.theme.load();
@@ -63,6 +66,15 @@ export class AppShell {
     this.notificationPanelOpen.update((open) => !open);
   }
 
+  toggleSidebar(): void {
+    this.sidebarCollapsed.update((collapsed) => {
+      const next = !collapsed;
+      this.persistSidebarCollapsed(next);
+      if (next) this.notificationPanelOpen.set(false);
+      return next;
+    });
+  }
+
   async openNotification(item: AppNotification): Promise<void> {
     await this.notifications.markRead(item);
     this.notificationPanelOpen.set(false);
@@ -90,6 +102,18 @@ export class AppShell {
     return label === 'None' ? 'AI CLI connected' : `${label} connected`;
   }
 
+  selectedProjectTitle(): string {
+    return `Active project: ${this.projectContext.selectedProject()?.name || 'No project selected'}`;
+  }
+
+  runtimeStatusTitle(): string {
+    const status = this.runtimeHealth.status();
+    if (status?.state === 'connected') return `Local runtime ready: ${this.connectedSubtitle()}`;
+    if (status?.state === 'unavailable') return `Runtime unavailable. Selected provider: ${this.providerLabel(status.aiProvider)}`;
+    if (status?.state === 'unreachable') return 'Local service unreachable. Check Settings.';
+    return 'Checking runtime';
+  }
+
   private async loadAppVersion(): Promise<void> {
     if (!this.desktop.isDesktop) return;
     try {
@@ -98,6 +122,16 @@ export class AppShell {
     } catch {
       this.appVersion.set('Version unavailable');
     }
+  }
+
+  private readSidebarCollapsed(): boolean {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
+  }
+
+  private persistSidebarCollapsed(collapsed: boolean): void {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
   }
 
   private async navigateToNotificationTarget(item: AppNotification): Promise<void> {

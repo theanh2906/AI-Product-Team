@@ -109,12 +109,17 @@ a {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-columns: 224px minmax(0, 1fr);
+  transition: grid-template-columns 0.18s ease;
+}
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 .sidebar {
   position: sticky;
   top: 0;
+  min-width: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -124,11 +129,19 @@ a {
   z-index: 5;
 }
 
+.brand-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: start;
+  gap: 6px;
+  padding: 0 0 20px;
+}
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 8px 24px;
+  min-width: 0;
+  padding: 0 8px;
 }
 .brand-mark {
   display: block;
@@ -142,16 +155,40 @@ a {
   gap: 1px;
 }
 .brand-copy strong {
+  overflow: hidden;
   color: var(--text);
   font-size: 15px;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .brand-copy small {
+  overflow: hidden;
   color: var(--muted);
   font-size: 9px;
   font-weight: 650;
   line-height: 1.2;
   letter-spacing: 0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-collapse-toggle {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--brand-dark);
+  background: var(--control);
+}
+.sidebar-collapse-toggle:hover,
+.sidebar-collapse-toggle:focus-visible {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.sidebar-collapse-toggle .material-symbols-rounded {
+  font-size: 18px;
 }
 .global-project-switcher {
   display: grid;
@@ -223,6 +260,12 @@ a {
   border-radius: 7px;
   color: #41504c;
   font-weight: 500;
+}
+.nav-copy {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nav-list a:hover {
   background: var(--surface-soft);
@@ -783,6 +826,108 @@ a {
 }
 .local-status small a {
   font-weight: 600;
+}
+
+.app-shell.sidebar-collapsed .sidebar {
+  width: 64px;
+  min-width: 64px;
+  max-width: 64px;
+  padding-right: 10px;
+  padding-left: 10px;
+}
+.app-shell.sidebar-collapsed .brand-row {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 8px;
+  padding-bottom: 14px;
+}
+.app-shell.sidebar-collapsed .brand {
+  width: 40px;
+  height: 40px;
+  justify-content: center;
+  padding: 0;
+  border-radius: 8px;
+}
+.app-shell.sidebar-collapsed .brand:hover {
+  background: var(--surface-soft);
+}
+.app-shell.sidebar-collapsed .brand-copy,
+.app-shell.sidebar-collapsed .global-project-switcher > span,
+.app-shell.sidebar-collapsed .global-project-switcher .chevron,
+.app-shell.sidebar-collapsed .nav-copy,
+.app-shell.sidebar-collapsed .notification-toggle > span:not(.material-symbols-rounded),
+.app-shell.sidebar-collapsed .theme-toggle > span:not(.material-symbols-rounded),
+.app-shell.sidebar-collapsed .theme-switch,
+.app-shell.sidebar-collapsed .local-status > div {
+  display: none;
+}
+.app-shell.sidebar-collapsed .sidebar-collapse-toggle,
+.app-shell.sidebar-collapsed .global-project-switcher > div,
+.app-shell.sidebar-collapsed .nav-list a,
+.app-shell.sidebar-collapsed .notification-toggle,
+.app-shell.sidebar-collapsed .theme-toggle {
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  justify-content: center;
+}
+.app-shell.sidebar-collapsed .global-project-switcher {
+  margin: 0 2px 12px;
+}
+.app-shell.sidebar-collapsed .global-project-switcher > div {
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--control);
+}
+.app-shell.sidebar-collapsed .global-project-switcher select {
+  position: absolute;
+  inset: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  opacity: 0;
+}
+.app-shell.sidebar-collapsed .global-project-switcher .material-symbols-rounded {
+  position: static;
+  font-size: 20px;
+}
+.app-shell.sidebar-collapsed .nav-list a {
+  display: grid;
+  place-items: center;
+  gap: 0;
+}
+.app-shell.sidebar-collapsed .notification-control,
+.app-shell.sidebar-collapsed .notification-toggle {
+  position: relative;
+}
+.app-shell.sidebar-collapsed .notification-toggle {
+  grid-template-columns: 1fr;
+}
+.app-shell.sidebar-collapsed .notification-toggle b {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 9px;
+}
+.app-shell.sidebar-collapsed .theme-toggle {
+  display: grid;
+  grid-template-columns: 1fr;
+  margin-right: auto;
+  margin-left: auto;
+}
+.app-shell.sidebar-collapsed .local-status {
+  justify-content: center;
+  margin-top: 10px;
+  padding: 13px 0 0;
+}
+.app-shell.sidebar-collapsed .local-status .status-dot {
+  margin-top: 0;
 }
 
 .work-item-form {
@@ -5313,7 +5458,8 @@ html[data-theme='dark'] .finding-content > p {
 }
 
 @media (max-width: 760px) {
-  .app-shell {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
     grid-template-columns: 1fr;
   }
   .sidebar,
@@ -5328,8 +5474,58 @@ html[data-theme='dark'] .finding-content > p {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
+  .app-shell.sidebar-collapsed .sidebar {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding: 12px;
+  }
+  .brand-row,
+  .app-shell.sidebar-collapsed .brand-row {
+    grid-template-columns: minmax(0, 1fr) 34px;
+    justify-items: stretch;
+    padding-bottom: 10px;
+  }
   .brand {
     padding-bottom: 10px;
+  }
+  .app-shell.sidebar-collapsed .brand {
+    width: auto;
+    height: auto;
+    justify-content: flex-start;
+    padding: 0 8px 10px;
+  }
+  .app-shell.sidebar-collapsed .brand-copy,
+  .app-shell.sidebar-collapsed .global-project-switcher > span,
+  .app-shell.sidebar-collapsed .global-project-switcher .chevron,
+  .app-shell.sidebar-collapsed .nav-copy,
+  .app-shell.sidebar-collapsed .notification-toggle > span:not(.material-symbols-rounded),
+  .app-shell.sidebar-collapsed .theme-toggle > span:not(.material-symbols-rounded),
+  .app-shell.sidebar-collapsed .theme-switch,
+  .app-shell.sidebar-collapsed .local-status > div {
+    display: revert;
+  }
+  .app-shell.sidebar-collapsed .global-project-switcher > div,
+  .app-shell.sidebar-collapsed .notification-toggle,
+  .app-shell.sidebar-collapsed .theme-toggle {
+    width: 100%;
+    min-height: 42px;
+  }
+  .app-shell.sidebar-collapsed .global-project-switcher select {
+    position: static;
+    width: 100%;
+    height: 38px;
+    padding: 0 28px 0 31px;
+    opacity: 1;
+  }
+  .app-shell.sidebar-collapsed .global-project-switcher .material-symbols-rounded {
+    position: absolute;
+    left: 9px;
+    font-size: 16px;
+  }
+  .app-shell.sidebar-collapsed .global-project-switcher .chevron {
+    right: 8px;
+    left: auto;
   }
   .nav-list {
     display: flex;
@@ -5339,7 +5535,7 @@ html[data-theme='dark'] .finding-content > p {
     min-width: max-content;
     min-height: 38px;
   }
-  .nav-list a span {
+  .nav-list a > .material-symbols-rounded {
     display: none;
   }
   .local-status {

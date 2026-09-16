@@ -37,7 +37,7 @@ type projectStudyFolder struct {
 	Name     string   `json:"name"`
 	Path     string   `json:"path"`
 	Kind     string   `json:"kind"`
-	Children []string `json:"children,omitempty"`
+	Children []string `json:"children"`
 }
 
 type projectStudyComponent struct {

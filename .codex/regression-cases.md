@@ -630,6 +630,27 @@ Suggested checks:
 - `Set-Location frontend; npm run build:go`: verifies Create Product styles are emitted into the fingerprinted global stylesheet and copied into the Go embed.
 - Open an Angular route, restart ProductCrew with a newly built embedded bundle, then reload normally: verifies the AppShell and route component remain styled without a hard refresh.
 
+### RG-DESKTOP-003 Collapsible App Sidebar
+
+Status: active
+Area: Desktop
+Source: `frontend/src/app/shared/app-shell/**`, `frontend/src/styles.css`, `frontend/e2e/app-shell-sidebar-layout.spec.ts`
+Trigger: User collapses or expands the primary left navigation while using a
+desktop ProductCrew page such as Work board, Project Atlas, Settings, or
+Observability.
+Expected: The sidebar switches between the expanded 224px navigation and a 64px
+icon rail, persists the chosen state, keeps route links, notifications, theme
+toggle, runtime status, and active-project access usable, and gives the main
+content column the recovered width without introducing horizontal document
+overflow. The expanded brand row must keep the collapse button clear of the
+ProductCrew name/version text. The saved collapsed state must not force the
+narrow mobile shell into icon-only navigation.
+Suggested checks:
+- `Set-Location frontend; npm test -- --watch=false --include src/app/shared/app-shell/app-shell.spec.ts`: verifies toggle state, persistence, route links, and shell rendering.
+- `Set-Location frontend; npm run test:ui`: verifies the compiled stylesheet
+collapses the shell to a 64px rail, expands the main content column, and avoids
+horizontal overflow in a real browser.
+
 ### RG-PACKAGING-001 Installer Update Build
 
 Status: active
@@ -673,14 +694,24 @@ Status: active
 Area: Agent Studio
 Source: `internal/web/project_intelligence.go`, `frontend/src/app/features/project-atlas/**`, `frontend/src/styles.css`, `frontend/e2e/project-atlas-layout.spec.ts`, `frontend/src/app/core/project-intelligence-api.service.ts`, `/api/projects/{projectID}/intelligence`
 Trigger: User opens Project Atlas, starts or refreshes a project study, then changes relevant project source.
-Expected: ProductCrew streams study progress, persists the latest result under the selected project's `.productcrew/project-intelligence`, restores it after restart, and reports fresh or stale from source/config files only. Generated dependencies, ProductCrew storage, build outputs, screenshots, and binary artifacts do not pollute the inventory or freshness fingerprint. A provider failure leaves a usable partial folder and architecture map instead of a broken page, persists the concrete enrichment error, and shows that root-cause message again after the app reloads. Atlas layout rules ship in the initial stylesheet so the desktop WebView cannot expose raw unstyled HTML while loading the lazy route.
+Expected: ProductCrew streams study progress, persists the latest result under the selected project's `.productcrew/project-intelligence`, restores it after restart, and reports fresh or stale from source/config files only. Generated dependencies, ProductCrew storage, build outputs, screenshots, and binary artifacts do not pollute the inventory or freshness fingerprint. Folder map payloads always serialize `children` as arrays, and the Atlas UI renders folder cards with a stable name/path/count even when opening older snapshots that omitted empty `children`. A provider failure leaves a usable partial folder and architecture map instead of a broken page, persists the concrete enrichment error, and shows that root-cause message again after the app reloads. Atlas layout rules ship in the initial stylesheet so the desktop WebView cannot expose raw unstyled HTML while loading the lazy route.
 Sequences render as participant-based interaction diagrams from `from`/`to`
-steps, Workflows render as compact stage graphs from ordered stages, and both
-views stay inside the Atlas canvas without horizontal overflow.
+steps, Workflows render as compact ordered stage graphs using a two-column
+snake/Z path where arrows point to the next numbered stage (right, down, left,
+down) instead of pointing horizontally into empty wrapped space. Workflow
+connector gaps must keep arrowheads visible between rows, and both views stay
+inside the Atlas canvas without horizontal overflow. Diagram lenses render
+inside a shared interactive canvas shell with zoom, fit/reset, and fullscreen
+controls; opening fullscreen creates a fixed overlay instead of appending inline
+content that changes the underlying page height or scroll state. Workflow
+diagrams use Foblex Flow primitives (`f-flow`, `f-canvas`, `[fNode]`,
+`[fConnector]`, and `f-connection`) with app-owned records, stable connector
+ids, and `ngProjectAs` projection wrappers so nodes, connectors, and edges render
+and remain draggable without falling back to CSS-only arrows.
 Suggested checks:
-- `go test ./internal/web -run "TestProjectStudy" -count=1`: verifies bounded inventory, cache persistence, non-null collections, partial results, and freshness.
-- `Set-Location frontend; npm run test:ui`: builds the initial stylesheet and verifies Atlas header, project strip, empty state, spacing, and radii in a real browser.
-- `Set-Location frontend; npm test -- --watch=false`: verifies Atlas loading, lens switching, visual sequence/workflow rendering, project changes, SSE completion, and guidance actions.
+- `go test ./internal/web -run "TestProjectStudy" -count=1`: verifies bounded inventory, cache persistence, non-null collections, folder child-array serialization, partial results, and freshness.
+- `Set-Location frontend; npm run test:ui`: builds the initial stylesheet and verifies Atlas header, project strip, empty state, diagram shell, fullscreen overlay, spacing, overflow, and radii in a real browser.
+- `Set-Location frontend; npm test -- --watch=false`: verifies Atlas loading, lens switching, visual sequence/workflow rendering, Foblex workflow primitives, fullscreen diagram behavior, project changes, SSE completion, and guidance actions.
 - Open `/project-atlas`, run Study, switch lenses, collapse/expand evidence, and inspect browser warnings/errors: verifies the desktop workspace and inspector remain usable in full and partial states.
 
 ### RG-ATLAS-002 Learned Guidance Precedence

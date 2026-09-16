@@ -5,6 +5,7 @@ import { provideRouter } from '@angular/router';
 import { AppUpdateService } from '../../core/app-update.service';
 import { DesktopWindowService } from '../../core/desktop-window.service';
 import { NotificationService } from '../../core/notification.service';
+import { ProjectContextService } from '../../core/project-context.service';
 import { RuntimeHealthService, RuntimeHealthStatus } from '../../core/runtime-health.service';
 import { ThemeService } from '../../core/theme.service';
 import { AppShell } from './app-shell';
@@ -19,6 +20,14 @@ describe('AppShell runtime badge', () => {
     initialize: async () => {},
   };
   const theme = { isDark: () => false, saving: () => false, load: () => {}, toggle: () => {} };
+  const projectContext = {
+    selectedProjectId: signal('project-1'),
+    selectedProject: signal({ id: 'project-1', name: 'AI-Product-Team' }),
+    projects: signal([{ id: 'project-1', name: 'AI-Product-Team' }]),
+    loading: signal(false),
+    initialize: async () => {},
+    select: () => true,
+  };
   const updates = {
     shouldShowToast: () => false,
     status: signal(null),
@@ -31,7 +40,12 @@ describe('AppShell runtime badge', () => {
   const desktop = { isDesktop: false };
 
   beforeEach(async () => {
+    localStorage.clear();
     runtimeHealth.status.set(null);
+    projectContext.selectedProjectId.set('project-1');
+    projectContext.selectedProject.set({ id: 'project-1', name: 'AI-Product-Team' });
+    projectContext.projects.set([{ id: 'project-1', name: 'AI-Product-Team' }]);
+    projectContext.loading.set(false);
     await TestBed.configureTestingModule({
       imports: [AppShell],
       providers: [
@@ -41,6 +55,7 @@ describe('AppShell runtime badge', () => {
         { provide: ThemeService, useValue: theme },
         { provide: AppUpdateService, useValue: updates },
         { provide: DesktopWindowService, useValue: desktop },
+        { provide: ProjectContextService, useValue: projectContext },
       ],
     }).compileComponents();
   });
@@ -140,6 +155,32 @@ describe('AppShell runtime badge', () => {
     expect(fixture.nativeElement.querySelector('.notification-toggle')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.theme-toggle')).not.toBeNull();
     expect(fixture.nativeElement.querySelectorAll('.nav-list a').length).toBeGreaterThan(0);
+  });
+
+  it('collapses and expands the primary sidebar without removing navigation', () => {
+    const fixture = render();
+    const toggle: HTMLButtonElement = fixture.nativeElement.querySelector('.sidebar-collapse-toggle');
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.app-shell').classList.contains('sidebar-collapsed')).toBe(true);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(localStorage.getItem('productcrew.sidebar-collapsed')).toBe('true');
+    expect(fixture.nativeElement.querySelectorAll('.nav-list a').length).toBeGreaterThan(0);
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.app-shell').classList.contains('sidebar-collapsed')).toBe(false);
+    expect(localStorage.getItem('productcrew.sidebar-collapsed')).toBe('false');
+  });
+
+  it('restores the collapsed sidebar preference on render', () => {
+    localStorage.setItem('productcrew.sidebar-collapsed', 'true');
+    const fixture = render();
+
+    expect(fixture.nativeElement.querySelector('.app-shell').classList.contains('sidebar-collapsed')).toBe(true);
   });
 
   it('renders an in-app update confirmation dialog for active AI sessions', () => {

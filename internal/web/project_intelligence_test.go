@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,6 +80,13 @@ func TestProjectStudyManagerPersistsResultAndDetectsStaleSource(t *testing.T) {
 	}
 	if latest.Result.DataEntities == nil || latest.Result.Sequences == nil || latest.Result.Workflows == nil {
 		t.Fatalf("empty study collections must serialize as arrays: %+v", latest.Result)
+	}
+	foldersJSON, err := json.Marshal(latest.Result.Folders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(foldersJSON), `"children":[]`) {
+		t.Fatalf("empty folder children must serialize as an array, got %s", foldersJSON)
 	}
 	if _, err := os.Stat(projectIntelligencePath(targetProject)); err != nil {
 		t.Fatalf("study cache was not persisted: %v", err)

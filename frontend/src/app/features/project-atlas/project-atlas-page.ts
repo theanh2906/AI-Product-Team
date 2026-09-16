@@ -1,8 +1,9 @@
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { FFlowModule, type FMoveNodesEvent } from '@foblex/flow';
 import { firstValueFrom, Subscription } from 'rxjs';
 
 import { ProjectContextService } from '../../core/project-context.service';
@@ -19,6 +20,9 @@ import { AppShell } from '../../shared/app-shell/app-shell';
 
 type AtlasLens = 'architecture' | 'folders' | 'data' | 'sequences' | 'workflows';
 type ProjectStudySequenceStep = ProjectStudySequence['steps'][number];
+type FlowPoint = { x: number; y: number };
+type WorkflowFlowNode = { id: string; index: number; label: string; kind: string; position: FlowPoint; sourceConnectorId: string; targetConnectorId: string };
+type WorkflowFlowConnection = { id: string; sourceId: string; targetId: string };
 
 const LENSES: Array<{ id: AtlasLens; label: string; icon: string }> = [
   { id: 'architecture', label: 'Architecture', icon: 'account_tree' },
@@ -30,7 +34,7 @@ const LENSES: Array<{ id: AtlasLens; label: string; icon: string }> = [
 
 @Component({
   selector: 'app-project-atlas-page',
-  imports: [AppShell, DatePipe, NgTemplateOutlet, RouterLink],
+  imports: [AppShell, DatePipe, FFlowModule, NgTemplateOutlet, RouterLink],
   templateUrl: './project-atlas-page.html',
 })
 export class ProjectAtlasPage implements OnInit, OnDestroy {
@@ -58,6 +62,10 @@ export class ProjectAtlasPage implements OnInit, OnDestroy {
   readonly selectedSequenceId = signal('');
   readonly selectedWorkflowId = signal('');
   readonly skillsOpen = signal(false);
+  readonly diagramFullscreenOpen = signal(false);
+  readonly diagramZoom = signal(100);
+  readonly diagramScale = computed(() => `${this.diagramZoom() / 100}`);
+  readonly workflowNodePositions = signal<Record<string, FlowPoint>>({});
 
   readonly result = computed(() => this.job()?.result ?? null);
   readonly studying = computed(() => this.job()?.status === 'running');
@@ -66,6 +74,8 @@ export class ProjectAtlasPage implements OnInit, OnDestroy {
   readonly selectedEntity = computed(() => this.pickBy(this.result()?.dataEntities ?? [], this.selectedEntityName(), 'name'));
   readonly selectedSequence = computed(() => this.pickBy(this.result()?.sequences ?? [], this.selectedSequenceId(), 'id'));
   readonly selectedWorkflow = computed(() => this.pickBy(this.result()?.workflows ?? [], this.selectedWorkflowId(), 'id'));
+  readonly selectedWorkflowNodes = computed(() => this.workflowFlowNodes(this.selectedWorkflow()));
+  readonly selectedWorkflowConnections = computed(() => this.workflowFlowConnections(this.selectedWorkflowNodes()));
   readonly selectedSequenceParticipants = computed(() => this.sequenceParticipants(this.selectedSequence()));
   readonly visibleEvidence = computed(() => {
     if (this.lens() === 'architecture') return this.selectedComponent()?.evidence ?? [];
@@ -143,6 +153,45 @@ export class ProjectAtlasPage implements OnInit, OnDestroy {
   selectSequence(sequence: ProjectStudySequence): void { this.selectedSequenceId.set(sequence.id); }
   selectWorkflow(workflow: ProjectStudyWorkflow): void { this.selectedWorkflowId.set(workflow.id); }
 
+  @HostListener('document:keydown.escape')
+  closeDiagramFullscreen(): void {
+    this.diagramFullscreenOpen.set(false);
+  }
+
+  openDiagramFullscreen(): void {
+    if (!this.result()) return;
+    this.diagramFullscreenOpen.set(true);
+  }
+
+  zoomDiagram(delta: number): void {
+    this.diagramZoom.update((value) => Math.min(140, Math.max(70, value + delta)));
+  }
+
+  resetDiagramView(): void {
+    this.diagramZoom.set(100);
+  }
+
+  onWorkflowNodesMoved(event: FMoveNodesEvent): void {
+    if (!event.nodes.length) return;
+    this.workflowNodePositions.update((positions) => {
+      const next = { ...positions };
+      for (const node of event.nodes) next[node.id] = { x: node.position.x, y: node.position.y };
+      return next;
+    });
+  }
+
+  folderName(folder: ProjectStudyFolder): string {
+    return String(folder.name || folder.path || 'Unnamed folder').trim() || 'Unnamed folder';
+  }
+
+  folderPath(folder: ProjectStudyFolder): string {
+    return String(folder.path || folder.name || '').trim();
+  }
+
+  folderChildren(folder: ProjectStudyFolder): string[] {
+    return Array.isArray(folder.children) ? folder.children : [];
+  }
+
   sequenceParticipants(sequence: ProjectStudySequence | null): string[] {
     if (!sequence) return [];
     const participants: string[] = [];
@@ -177,6 +226,61 @@ export class ProjectAtlasPage implements OnInit, OnDestroy {
     if (index === 0) return 'Start';
     if (index === total - 1) return 'Finish';
     return 'Stage';
+  }
+
+  workflowNodeRow(index: number): number {
+    return Math.floor(index / 2) + 1;
+  }
+
+  workflowNodeColumn(index: number): number {
+    const row = Math.floor(index / 2);
+    const position = index % 2;
+    return row % 2 === 0 ? position + 1 : 2 - position;
+  }
+
+  workflowNodeDirection(index: number, total: number): 'right' | 'down' | 'left' | 'none' {
+    if (index >= total - 1) return 'none';
+    const currentColumn = this.workflowNodeColumn(index);
+    const nextColumn = this.workflowNodeColumn(index + 1);
+    if (this.workflowNodeRow(index + 1) > this.workflowNodeRow(index)) return 'down';
+    if (nextColumn > currentColumn) return 'right';
+    if (nextColumn < currentColumn) return 'left';
+    return 'none';
+  }
+
+  workflowFlowNodeKind(index: number, total: number): string {
+    return this.workflowStageKind(index, total).toLowerCase();
+  }
+
+  private workflowFlowNodes(workflow: ProjectStudyWorkflow | null): WorkflowFlowNode[] {
+    if (!workflow) return [];
+    return workflow.steps.map((step, index) => {
+      const id = `workflow-${workflow.id}-${index}`;
+      return {
+        id,
+        index,
+        label: step,
+        kind: this.workflowFlowNodeKind(index, workflow.steps.length),
+        position: this.workflowNodePositions()[id] ?? this.defaultWorkflowNodePosition(index),
+        sourceConnectorId: `${id}-source`,
+        targetConnectorId: `${id}-target`,
+      };
+    });
+  }
+
+  private workflowFlowConnections(nodes: WorkflowFlowNode[]): WorkflowFlowConnection[] {
+    return nodes.slice(0, -1).map((node, index) => ({
+      id: `${node.id}-to-${nodes[index + 1].id}`,
+      sourceId: node.sourceConnectorId,
+      targetId: nodes[index + 1].targetConnectorId,
+    }));
+  }
+
+  private defaultWorkflowNodePosition(index: number): FlowPoint {
+    return {
+      x: this.workflowNodeColumn(index) === 1 ? 36 : 390,
+      y: (this.workflowNodeRow(index) - 1) * 170 + 34,
+    };
   }
 
   relationCount(componentId: string): number {

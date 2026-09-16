@@ -87,103 +87,21 @@
         <section class="atlas-canvas">
           <header>
             <div><span class="atlas-eyebrow">{{ lens() }}</span><h2>{{ result()?.projectName }} system map</h2><p>{{ result()?.summary }}</p></div>
-            <span class="atlas-confidence"><i></i>{{ result()?.freshness === 'fresh' ? 'Current snapshot' : 'Source changed' }}</span>
+            <div class="atlas-canvas-tools" aria-label="Diagram controls">
+              <span class="atlas-confidence"><i></i>{{ result()?.freshness === 'fresh' ? 'Current snapshot' : 'Source changed' }}</span>
+              <button type="button" title="Zoom out" aria-label="Zoom out diagram" (click)="zoomDiagram(-10)"><span class="material-symbols-rounded">remove</span></button>
+              <strong>{{ diagramZoom() }}%</strong>
+              <button type="button" title="Zoom in" aria-label="Zoom in diagram" (click)="zoomDiagram(10)"><span class="material-symbols-rounded">add</span></button>
+              <button type="button" title="Reset view" aria-label="Reset diagram view" (click)="resetDiagramView()"><span class="material-symbols-rounded">center_focus_strong</span><span>Fit</span></button>
+              <button type="button" title="Open fullscreen" aria-label="Open diagram fullscreen" (click)="openDiagramFullscreen()"><span class="material-symbols-rounded">open_in_full</span><span>Fullscreen</span></button>
+            </div>
           </header>
 
-          @switch (lens()) {
-            @case ('architecture') {
-              @if (result()?.components?.length) {
-                <div class="architecture-map">
-                  @for (component of result()?.components; track component.id) {
-                    <button type="button" class="architecture-node" [class.selected]="selectedComponent()?.id === component.id" (click)="selectComponent(component)">
-                      <span class="material-symbols-rounded">{{ iconForKind(component.kind) }}</span>
-                      <div><small>{{ component.kind }}</small><strong>{{ component.name }}</strong><p>{{ component.path }}</p></div>
-                      <b>{{ relationCount(component.id) }}</b>
-                    </button>
-                  }
-                </div>
-                @if (result()?.relations?.length) {
-                  <div class="relation-ledger">
-                    @for (relation of result()?.relations?.slice(0, 8); track relation.from + relation.to + relation.label) {
-                      <span><b>{{ relation.from }}</b><i class="material-symbols-rounded">arrow_forward</i><em>{{ relation.label }}</em><i class="material-symbols-rounded">arrow_forward</i><b>{{ relation.to }}</b></span>
-                    }
-                  </div>
-                }
-              } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'account_tree', title: 'No architecture model yet', copy: 'Run Study again when the AI runtime is available.' }" /> }
-            }
-            @case ('folders') {
-              <div class="folder-map">
-                @for (folder of result()?.folders; track folder.path) {
-                  <button type="button" [class.selected]="selectedFolder()?.path === folder.path" (click)="selectFolder(folder)">
-                    <span class="material-symbols-rounded">folder</span><div><strong>{{ folder.name }}</strong><small>{{ folder.path }}</small></div><b>{{ folder.children.length }}</b>
-                    @if (folder.children.length) { <p>{{ folder.children.join('  ·  ') }}</p> }
-                  </button>
-                } @empty { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'folder_off', title: 'No folders mapped', copy: 'The project root did not expose scannable folders.' }" /> }
-              </div>
-            }
-            @case ('data') {
-              @if (result()?.dataEntities?.length) {
-                <div class="data-map">
-                  @for (entity of result()?.dataEntities; track entity.name) {
-                    <button type="button" [class.selected]="selectedEntity()?.name === entity.name" (click)="selectEntity(entity)">
-                      <header><span class="material-symbols-rounded">database</span><div><small>{{ entity.kind }}</small><strong>{{ entity.name }}</strong></div></header>
-                      <p>{{ entity.description }}</p>
-                      <ul>@for (field of entity.fields.slice(0, 6); track field) { <li>{{ field }}</li> }</ul>
-                    </button>
-                  }
-                </div>
-              } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'database_off', title: 'No data model detected', copy: 'Atlas did not find enough evidence to model persistent entities.' }" /> }
-            }
-            @case ('sequences') {
-              @if (result()?.sequences?.length) {
-                <div class="flow-layout">
-                  <aside>@for (sequence of result()?.sequences; track sequence.id) { <button type="button" [class.selected]="selectedSequence()?.id === sequence.id" (click)="selectSequence(sequence)"><strong>{{ sequence.name }}</strong><small>{{ sequence.steps.length }} steps</small></button> }</aside>
-                  @if (selectedSequence(); as sequence) {
-                    <div class="sequence-diagram" [style.--sequence-lanes]="selectedSequenceParticipants().length">
-                      <div class="sequence-lanes" [style.grid-template-columns]="sequenceGridColumns(selectedSequenceParticipants())">
-                        @for (participant of selectedSequenceParticipants(); track participant) {
-                          <div class="sequence-lane">
-                            <span>{{ participant.slice(0, 2).toUpperCase() }}</span>
-                            <strong>{{ participant }}</strong>
-                          </div>
-                        }
-                      </div>
-                      <div class="sequence-steps" [style.grid-template-columns]="sequenceGridColumns(selectedSequenceParticipants())">
-                        @for (step of sequence.steps; track step.order; let index = $index) {
-                          <div class="sequence-step" [attr.data-align]="sequenceStepAlignment(step, selectedSequenceParticipants())" [style.grid-column]="sequenceStepGridColumn(step, selectedSequenceParticipants())" [style.grid-row]="index + 1">
-                            <b>{{ step.order }}</b>
-                            <i></i>
-                            <span>
-                              <small>{{ step.from }} → {{ step.to }}</small>
-                              <strong>{{ step.label }}</strong>
-                            </span>
-                          </div>
-                        }
-                      </div>
-                    </div>
-                  }
-                </div>
-              } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'conversion_path', title: 'No sequence detected', copy: 'A future study can add request and background-job sequences here.' }" /> }
-            }
-            @case ('workflows') {
-              @if (result()?.workflows?.length) {
-                <div class="flow-layout">
-                  <aside>@for (workflow of result()?.workflows; track workflow.id) { <button type="button" [class.selected]="selectedWorkflow()?.id === workflow.id" (click)="selectWorkflow(workflow)"><strong>{{ workflow.name }}</strong><small>{{ workflow.steps.length }} stages</small></button> }</aside>
-                  @if (selectedWorkflow(); as workflow) {
-                    <div class="workflow-graph">
-                      @for (step of workflow.steps; track step; let index = $index) {
-                        <article class="workflow-node">
-                          <b>{{ index + 1 }}</b>
-                          <span>{{ workflowStageKind(index, workflow.steps.length) }}</span>
-                          <strong>{{ step }}</strong>
-                        </article>
-                      }
-                    </div>
-                  }
-                </div>
-              } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'route', title: 'No workflow detected', copy: 'Atlas only renders workflows supported by repository evidence.' }" /> }
-            }
-          }
+          <div class="atlas-diagram-frame" [style.--diagram-scale]="diagramScale()">
+            <div class="atlas-diagram-zoom-layer">
+              <ng-container *ngTemplateOutlet="atlasLensContent"></ng-container>
+            </div>
+          </div>
         </section>
 
         <aside class="atlas-inspector">
@@ -201,8 +119,8 @@
             }
             @case ('folders') {
               @if (selectedFolder(); as folder) {
-                <div class="inspector-title"><span class="material-symbols-rounded">folder_open</span><div><small>{{ folder.kind }}</small><h3>{{ folder.name }}</h3></div></div><p><code>{{ folder.path }}</code></p>
-                <section><h4>Directly mapped children</h4><ul class="file-list">@for (child of folder.children; track child) { <li><span class="material-symbols-rounded">subdirectory_arrow_right</span><code>{{ child }}</code></li> } @empty { <li>No child folders at the indexed depth.</li> }</ul></section>
+                <div class="inspector-title"><span class="material-symbols-rounded">folder_open</span><div><small>{{ folder.kind }}</small><h3>{{ folderName(folder) }}</h3></div></div><p><code>{{ folderPath(folder) }}</code></p>
+                <section><h4>Directly mapped children</h4><ul class="file-list">@for (child of folderChildren(folder); track child) { <li><span class="material-symbols-rounded">subdirectory_arrow_right</span><code>{{ child }}</code></li> } @empty { <li>No child folders at the indexed depth.</li> }</ul></section>
               }
             }
             @case ('data') {
@@ -243,7 +161,148 @@
       </aside>
     </div>
   }
+
+  @if (diagramFullscreenOpen()) {
+    <div class="atlas-fullscreen-backdrop" (click)="closeDiagramFullscreen()">
+      <section class="atlas-fullscreen-modal" role="dialog" aria-modal="true" aria-labelledby="atlas-fullscreen-title" (click)="$event.stopPropagation()">
+        <header>
+          <div>
+            <span class="atlas-eyebrow">INTERACTIVE DIAGRAM</span>
+            <h2 id="atlas-fullscreen-title">{{ result()?.projectName }} · {{ lens() }}</h2>
+            <p>{{ result()?.summary }}</p>
+          </div>
+          <div class="atlas-canvas-tools">
+            <button type="button" title="Zoom out" aria-label="Zoom out diagram" (click)="zoomDiagram(-10)"><span class="material-symbols-rounded">remove</span></button>
+            <strong>{{ diagramZoom() }}%</strong>
+            <button type="button" title="Zoom in" aria-label="Zoom in diagram" (click)="zoomDiagram(10)"><span class="material-symbols-rounded">add</span></button>
+            <button type="button" title="Reset view" aria-label="Reset diagram view" (click)="resetDiagramView()"><span class="material-symbols-rounded">center_focus_strong</span><span>Fit</span></button>
+            <button type="button" title="Close fullscreen" aria-label="Close fullscreen diagram" (click)="closeDiagramFullscreen()"><span class="material-symbols-rounded">close</span></button>
+          </div>
+        </header>
+        <div class="atlas-fullscreen-body">
+          <div class="atlas-diagram-frame atlas-diagram-frame-fullscreen" [style.--diagram-scale]="diagramScale()">
+            <div class="atlas-diagram-zoom-layer">
+              <ng-container *ngTemplateOutlet="atlasLensContent"></ng-container>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  }
 </app-shell>
+
+<ng-template #atlasLensContent>
+  @switch (lens()) {
+    @case ('architecture') {
+      @if (result()?.components?.length) {
+        <div class="architecture-map">
+          @for (component of result()?.components; track component.id) {
+            <button type="button" class="architecture-node" [class.selected]="selectedComponent()?.id === component.id" (click)="selectComponent(component)">
+              <span class="material-symbols-rounded">{{ iconForKind(component.kind) }}</span>
+              <div><small>{{ component.kind }}</small><strong>{{ component.name }}</strong><p>{{ component.path }}</p></div>
+              <b>{{ relationCount(component.id) }}</b>
+            </button>
+          }
+        </div>
+        @if (result()?.relations?.length) {
+          <div class="relation-ledger">
+            @for (relation of result()?.relations?.slice(0, 8); track relation.from + relation.to + relation.label) {
+              <span><b>{{ relation.from }}</b><i class="material-symbols-rounded">arrow_forward</i><em>{{ relation.label }}</em><i class="material-symbols-rounded">arrow_forward</i><b>{{ relation.to }}</b></span>
+            }
+          </div>
+        }
+      } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'account_tree', title: 'No architecture model yet', copy: 'Run Study again when the AI runtime is available.' }" /> }
+    }
+    @case ('folders') {
+      <div class="folder-map">
+        @for (folder of result()?.folders; track folder.path) {
+          <button type="button" [class.selected]="selectedFolder()?.path === folder.path" (click)="selectFolder(folder)">
+            <span class="material-symbols-rounded">folder</span><div><strong>{{ folderName(folder) }}</strong><small>{{ folderPath(folder) }}</small></div><b>{{ folderChildren(folder).length }}</b>
+            @if (folderChildren(folder).length) { <p>{{ folderChildren(folder).join('  ·  ') }}</p> }
+          </button>
+        } @empty { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'folder_off', title: 'No folders mapped', copy: 'The project root did not expose scannable folders.' }" /> }
+      </div>
+    }
+    @case ('data') {
+      @if (result()?.dataEntities?.length) {
+        <div class="data-map">
+          @for (entity of result()?.dataEntities; track entity.name) {
+            <button type="button" [class.selected]="selectedEntity()?.name === entity.name" (click)="selectEntity(entity)">
+              <header><span class="material-symbols-rounded">database</span><div><small>{{ entity.kind }}</small><strong>{{ entity.name }}</strong></div></header>
+              <p>{{ entity.description }}</p>
+              <ul>@for (field of entity.fields.slice(0, 6); track field) { <li>{{ field }}</li> }</ul>
+            </button>
+          }
+        </div>
+      } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'database_off', title: 'No data model detected', copy: 'Atlas did not find enough evidence to model persistent entities.' }" /> }
+    }
+    @case ('sequences') {
+      @if (result()?.sequences?.length) {
+        <div class="flow-layout">
+          <aside>@for (sequence of result()?.sequences; track sequence.id) { <button type="button" [class.selected]="selectedSequence()?.id === sequence.id" (click)="selectSequence(sequence)"><strong>{{ sequence.name }}</strong><small>{{ sequence.steps.length }} steps</small></button> }</aside>
+          @if (selectedSequence(); as sequence) {
+            <div class="sequence-diagram" [style.--sequence-lanes]="selectedSequenceParticipants().length">
+              <div class="sequence-lanes" [style.grid-template-columns]="sequenceGridColumns(selectedSequenceParticipants())">
+                @for (participant of selectedSequenceParticipants(); track participant) {
+                  <div class="sequence-lane">
+                    <span>{{ participant.slice(0, 2).toUpperCase() }}</span>
+                    <strong>{{ participant }}</strong>
+                  </div>
+                }
+              </div>
+              <div class="sequence-steps" [style.grid-template-columns]="sequenceGridColumns(selectedSequenceParticipants())">
+                @for (step of sequence.steps; track step.order; let index = $index) {
+                  <div class="sequence-step" [attr.data-align]="sequenceStepAlignment(step, selectedSequenceParticipants())" [style.grid-column]="sequenceStepGridColumn(step, selectedSequenceParticipants())" [style.grid-row]="index + 1">
+                    <b>{{ step.order }}</b>
+                    <i></i>
+                    <span>
+                      <small>{{ step.from }} → {{ step.to }}</small>
+                      <strong>{{ step.label }}</strong>
+                    </span>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'conversion_path', title: 'No sequence detected', copy: 'A future study can add request and background-job sequences here.' }" /> }
+    }
+    @case ('workflows') {
+      @if (result()?.workflows?.length) {
+        <div class="flow-layout">
+          <aside>@for (workflow of result()?.workflows; track workflow.id) { <button type="button" [class.selected]="selectedWorkflow()?.id === workflow.id" (click)="selectWorkflow(workflow)"><strong>{{ workflow.name }}</strong><small>{{ workflow.steps.length }} stages</small></button> }</aside>
+          @if (selectedWorkflow(); as workflow) {
+            <f-flow class="workflow-graph workflow-flow" fDraggable (fMoveNodes)="onWorkflowNodesMoved($event)">
+              <f-canvas fZoom [fZoomMinimum]="0.7" [fZoomMaximum]="1.4" [fZoomStep]="0.1">
+                <ng-container ngProjectAs="[fConnections]">
+                  @for (connection of selectedWorkflowConnections(); track connection.id) {
+                    <f-connection [fConnectionId]="connection.id" [fSourceId]="connection.sourceId" [fTargetId]="connection.targetId" fType="segment"></f-connection>
+                  }
+                </ng-container>
+                <ng-container ngProjectAs="[fNodes]">
+                  @for (node of selectedWorkflowNodes(); track node.id) {
+                    <article fNode fDragHandle class="workflow-node workflow-node-flow" [fNodeId]="node.id" [fNodePosition]="node.position" [attr.data-kind]="node.kind">
+                      <b>{{ node.index + 1 }}</b>
+                      <span>{{ workflowStageKind(node.index, workflow.steps.length) }}</span>
+                      <strong>{{ node.label }}</strong>
+                      <i class="workflow-connector workflow-connector-target" fConnector fConnectorType="target" [fConnectorId]="node.targetConnectorId"></i>
+                      <i class="workflow-connector workflow-connector-source" fConnector fConnectorType="source" [fConnectorId]="node.sourceConnectorId"></i>
+                    </article>
+                  }
+                </ng-container>
+              </f-canvas>
+            </f-flow>
+            <div class="workflow-minimap" aria-hidden="true">
+              @for (node of selectedWorkflowNodes(); track node.id) {
+                <span [style.left.px]="node.position.x / 6" [style.top.px]="node.position.y / 6"></span>
+              }
+            </div>
+          }
+        </div>
+      } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'route', title: 'No workflow detected', copy: 'Atlas only renders workflows supported by repository evidence.' }" /> }
+    }
+  }
+</ng-template>
 
 <ng-template #emptyLens let-icon="icon" let-title="title" let-copy="copy">
   <div class="lens-empty"><span class="material-symbols-rounded">{{ icon }}</span><h3>{{ title }}</h3><p>{{ copy }}</p></div>

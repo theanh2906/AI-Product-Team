@@ -53,6 +53,11 @@ describe('ProjectAtlasPage', () => {
   let applyGuidance: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
+    vi.stubGlobal('ResizeObserver', class ResizeObserver {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    });
     latestJob = completedJob;
     start = vi.fn(() => of({ ...completedJob, status: 'running' as const, progress: 5, result: undefined }));
     applyGuidance = vi.fn(() => of({ result: { ...result, guidanceApplied: true }, profile: {} }));
@@ -83,6 +88,9 @@ describe('ProjectAtlasPage', () => {
     fixture.componentInstance.setLens('workflows');
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).querySelector('.workflow-graph')).toBeTruthy();
+    expect((fixture.nativeElement as HTMLElement).querySelector('f-flow.workflow-flow')).toBeTruthy();
+    expect((fixture.nativeElement as HTMLElement).querySelector('f-canvas')).toBeTruthy();
+    expect((fixture.nativeElement as HTMLElement).querySelectorAll('f-connection')).toHaveLength(3);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Verify QA');
   });
 
@@ -122,5 +130,96 @@ describe('ProjectAtlasPage', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(
       'AI enrichment was limited. Folder Map is still available.',
     );
+  });
+
+  it('renders folder cards when legacy snapshots omit empty children arrays', async () => {
+    latestJob = {
+      ...completedJob,
+      result: {
+        ...result,
+        coverage: { ...result.coverage, foldersMapped: 3 },
+        folders: [
+          { name: '.codex', path: '.codex', kind: 'source', children: ['.codex/agents'] },
+          { name: 'scripts', path: 'scripts', kind: 'source' } as ProjectStudyResult['folders'][number],
+          { name: '', path: 'cmd', kind: 'source' } as ProjectStudyResult['folders'][number],
+        ],
+      },
+    };
+
+    const fixture = TestBed.createComponent(ProjectAtlasPage);
+    await fixture.componentInstance.ngOnInit();
+    fixture.componentInstance.setLens('folders');
+    fixture.componentInstance.selectFolder(latestJob.result!.folders[1]);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const folderCards = Array.from(host.querySelectorAll<HTMLButtonElement>('.folder-map > button'));
+    expect(folderCards).toHaveLength(3);
+    expect(folderCards.map((card) => card.querySelector('strong')?.textContent?.trim())).toEqual(['.codex', 'scripts', 'cmd']);
+    expect(folderCards.map((card) => card.querySelector('small')?.textContent?.trim())).toEqual(['.codex', 'scripts', 'cmd']);
+    expect(folderCards.map((card) => card.querySelector('b')?.textContent?.trim())).toEqual(['1', '0', '0']);
+    expect(host.textContent).toContain('No child folders at the indexed depth.');
+  });
+
+  it('lays workflow stages out as a two-column Z path', () => {
+    const fixture = TestBed.createComponent(ProjectAtlasPage);
+    const component = fixture.componentInstance;
+
+    expect([0, 1, 2, 3, 4].map((index) => [component.workflowNodeRow(index), component.workflowNodeColumn(index)])).toEqual([
+      [1, 1],
+      [1, 2],
+      [2, 2],
+      [2, 1],
+      [3, 1],
+    ]);
+    expect([0, 1, 2, 3, 4].map((index) => component.workflowNodeDirection(index, 5))).toEqual([
+      'right',
+      'down',
+      'left',
+      'down',
+      'none',
+    ]);
+  });
+
+  it('opens the selected diagram in a fullscreen overlay and keeps zoom bounded', async () => {
+    const fixture = TestBed.createComponent(ProjectAtlasPage);
+    await fixture.componentInstance.ngOnInit();
+    fixture.componentInstance.setLens('workflows');
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const fullscreenButton = host.querySelector<HTMLButtonElement>('button[aria-label="Open diagram fullscreen"]');
+    expect(fullscreenButton).toBeTruthy();
+
+    fullscreenButton?.click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.diagramFullscreenOpen()).toBe(true);
+    expect(host.querySelector('.atlas-fullscreen-modal')).toBeTruthy();
+    expect(host.querySelectorAll('.workflow-graph')).toHaveLength(2);
+
+    for (let index = 0; index < 10; index += 1) fixture.componentInstance.zoomDiagram(10);
+    expect(fixture.componentInstance.diagramZoom()).toBe(140);
+    for (let index = 0; index < 12; index += 1) fixture.componentInstance.zoomDiagram(-10);
+    expect(fixture.componentInstance.diagramZoom()).toBe(70);
+    fixture.componentInstance.resetDiagramView();
+    expect(fixture.componentInstance.diagramZoom()).toBe(100);
+
+    fixture.componentInstance.closeDiagramFullscreen();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.diagramFullscreenOpen()).toBe(false);
+    expect(host.querySelector('.atlas-fullscreen-modal')).toBeNull();
+  });
+
+  it('keeps user-moved workflow node positions in app-owned state', async () => {
+    const fixture = TestBed.createComponent(ProjectAtlasPage);
+    await fixture.componentInstance.ngOnInit();
+    fixture.componentInstance.setLens('workflows');
+
+    const movedNodeId = 'workflow-delivery-flow-1';
+    fixture.componentInstance.onWorkflowNodesMoved({ nodes: [{ id: movedNodeId, position: { x: 512, y: 220 } }], fNodes: [] } as unknown as Parameters<ProjectAtlasPage['onWorkflowNodesMoved']>[0]);
+
+    expect(fixture.componentInstance.selectedWorkflowNodes().find((node) => node.id === movedNodeId)?.position).toEqual({ x: 512, y: 220 });
   });
 });
