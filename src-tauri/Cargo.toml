@@ -1,0 +1,36 @@
+[package]
+name = "productcrew-desktop"
+version = "0.1.145"
+description = "Desktop shell for the ProductCrew orchestrator"
+authors = ["ProductCrew"]
+edition = "2021"
+
+[lib]
+name = "productcrew_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+axum = "0.7"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }
+
+[features]
+default = []
+installer-updates = []
+
+[profile.release]
+codegen-units = 16
+lto = false
+opt-level = 1
+panic = "abort"
+strip = true

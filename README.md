@@ -1,40 +1,219 @@
-# Mini AI Team Center
+# ProductCrew
 
-A lightweight Go-based orchestrator triggered by GitHub workflows that coordinates a virtual AI agent team (Team Lead, Developer) to process repository issues and implement/validate solutions automatically.
+A local-first AI product-team orchestrator. Angular owns the operator UI, Rust/Tauri owns the desktop shell and embedded gateway, and the current Go orchestration runtime is embedded into the desktop executable while the backend is migrated route by route.
 
-## 📂 Project Structure
+## Project structure
 
+```text
+AI-Product-Team/
+├── cmd/
+│   ├── main.go                    # Legacy orchestrator entry point
+│   ├── pc/                        # ProductCrew remote-control CLI
+│   └── server/                    # Local HTTP service entry point
+├── frontend/                      # Angular standalone application
+│   └── src/app/
+│       ├── core/                  # API contracts and services
+│       └── features/work-items/   # Project Kanban and planning review UI
+├── internal/
+│   ├── agent/                     # AI agent implementations
+│   ├── codex/                     # Codex app-server JSON-RPC client
+│   ├── github/                    # Legacy GitHub adapter
+│   ├── kanban/                    # Board domain, rules and persistence port
+│   ├── planning/                  # Codex Team Lead planning adapter
+│   ├── storage/                   # JSON BoardRepository adapter
+│   └── web/                       # JSON API and embedded Angular assets
+└── go.mod
 ```
-📂 AI-Product-Team/
-├── 📂 .github/
-│   └── 📂 workflows/
-│       └── 📄 ai-orchestrator.yml  # GitHub Actions workflow triggered on Issues
-├── 📂 cmd/
-│   └── 📄 main.go                  # Core orchestrator entry point
-├── 📂 internal/
-│   ├── 📂 agent/                   # Defines AI Agents (Team Lead, Developer, etc.)
-│   │   ├── 📄 team_lead.go
-│   │   └── 📄 developer.go
-│   └── 📂 github/                  # Wrapper for GitHub API operations
-│       └── 📄 client.go
-├── 📄 go.mod                       # Go module definition
-└── 📄 README.md                    # Project documentation
+
+## Local orchestration UI
+
+Install frontend dependencies once:
+
+```bash
+cd frontend
+npm install
 ```
 
-## 🚀 How It Works
+Build Angular, copy its output into the Go embed directory, then start the local service:
 
-1. **GitHub Trigger**: A GitHub issue is opened or edited.
-2. **Workflow Activation**: `.github/workflows/ai-orchestrator.yml` fires, setting up a Go environment and passing the issue event payload to the orchestrator.
-3. **Team Lead Phase**: The Team Lead agent reviews the issue title/description and produces an implementation plan.
-4. **Developer Phase**: The Developer agent takes the plan and runs tasks (generating patches/files).
-5. **Issue Response**: The GitHub Client writes back a comment summarizing the agent operations onto the issue.
+```powershell
+cd frontend
+npm run build:go
+cd ..
+$env:APP_ADDR = "127.0.0.1:8081"
+go run ./cmd/server
+```
 
-## 🛠️ Local Development & Execution
+Open `http://127.0.0.1:8081/work-items`.
 
-To test the orchestrator locally without a GitHub action environment, simply run:
+## Automation CLI and API
+
+ProductCrew includes a local `pc` CLI for creating backlog items, starting Autopilot,
+and reading deterministic JSON status without opening the desktop UI. Build it
+with:
+
+```powershell
+make cli
+```
+
+With ProductCrew running on its default local API address:
+
+```powershell
+./dist/pc.exe projects list
+./dist/pc.exe new --project AI-Product-Team --type todo --title "Remote workflow" --description "Create and process this backlog item through ProductCrew."
+./dist/pc.exe autopilot --project AI-Product-Team --list
+./dist/pc.exe autopilot --project AI-Product-Team --id FEAT-013
+./dist/pc.exe explore --project AI-Product-Team --id FEAT-013
+./dist/pc.exe status --project AI-Product-Team --type bug --status blocked
+```
+
+Command results are JSON on stdout except the compact `autopilot --list` view;
+use `autopilot --list --json` for automation. Validation and API errors are JSON
+on stderr. Public backlog types are `todo`, `feature`, and `bug`. Compatibility
+aliases may remain for older scripts, but the approved public surface is the
+`/automation/*` REST contract described in
+[docs/remote-control.md](docs/remote-control.md).
+
+For Angular live reload and stylesheet HMR, keep the Go API on `8081` and run:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Open `http://127.0.0.1:8000/work-items`. Angular proxies `/api` requests to the ProductCrew REST/SSE gateway on `8081`.
+
+## Tauri desktop application
+
+The desktop architecture keeps Angular as the UI, uses a Tauri/Rust native shell, and runs a Rust embedded backend on `127.0.0.1:8081`. Routes already migrated to Rust are served directly; the remaining orchestration routes fall back to an embedded Go runtime that is extracted under LocalAppData at startup. ProductCrew opens maximized with the native Windows title bar. Closing the desktop window hides it to the system tray; background scans continue until the operator explicitly chooses **Quit** from the tray menu. Browser development uses port `8000` for Angular and `8081` for the REST/SSE gateway.
+
+Run the native desktop shell with Angular live reload:
+
+```powershell
+cd frontend
+npm run desktop:dev
+```
+
+The root packaging command rebuilds Angular, embeds the production UI and fallback Go runtime into Tauri, and writes versioned artifacts to `dist/`. Build commands clean `dist/` before starting so old packages do not mix with the current output. `make release` cleans once before the portable build, then preserves those artifacts while adding the installer. Each build also publishes the Go server runtime as `ProductCrew-v<version>-windows-x64-server.exe`; the portable package includes a copy as `productcrew-server.exe` next to `ProductCrew.exe`.
+
+Build the default portable EXE bundle and ZIP:
+
+```powershell
+make
+```
+
+Build the per-user Tauri NSIS installer instead:
+
+```powershell
+make installer
+```
+
+Build and publish an installer update with an automatic patch-version bump:
+
+```powershell
+make update
+```
+
+Build all release artifacts in one command:
+
+```powershell
+make release
+```
+
+Override the artifact version when publishing a release:
+
+```powershell
+make VERSION=1.2.3
+make installer VERSION=1.2.3
+make release VERSION=1.2.3
+```
+
+The NSIS installer is generated by Tauri and uses current-user install mode, so it does not require administrator access. Installer builds include ProductCrew's local update channel; portable builds deliberately compile it out. The update folder is configurable in Settings and defaults to `C:\Tools\updates`. Building with `--installer` publishes the setup file plus an `installer-latest.json` manifest containing its version, size, and SHA-256 digest. `make update` bumps the patch version across the desktop build files before building the installer update. The installed application checks this manifest at startup and every five minutes, verifies the installer again before launch, and then hands off to NSIS for replacement and relaunch.
+
+ProductCrew stores settings and local JSON data under `%USERPROFILE%\.productcrew`. On first use it migrates the legacy `%USERPROFILE%\.mini-ai-product-team` folder without overwriting newer files, and migrates the existing PAT entry to the ProductCrew credential-service name. Neither package installs a Windows service yet; the embedded fallback runtime is owned by the desktop process and continues running while the application is hidden in the system tray.
+
+## Kanban orchestration model
+
+- Every imported project owns one independent board.
+- Team Lead is the only agent involved before planning approval. It inspects the repository, optionally researches the web, and creates structured documents plus dependency-aware Designer, Developer, and QA tasks.
+- PM can approve the plan or deny it with a required reason. A denial returns the existing Codex thread to Team Lead for a complete revision. There are no approval loops after planning.
+- Approved tasks start in `Planning`. PM drags each task into the matching agent queue. A Developer task cannot enter Designer or QA, and only the assigned agent can mark a task complete.
+- Dependencies must complete before a task can enter its agent queue. Multiple tasks may be queued, but only one task can be `in_progress` across all project boards.
+- Closing or changing browsers does not affect planning. Board changes are streamed with SSE, while the JSON data remains the source of truth.
+- If the Windows service restarts during planning, that plan becomes `failed` with an explicit retry action. If it restarts during execution, the active card becomes `blocked` with a recovery reason. There is no hidden pipeline resume point.
+
+### Persistence boundary
+
+The domain depends only on `kanban.BoardRepository`, whose CRUD contract remains stable:
+
+```go
+type BoardRepository interface {
+    Create(context.Context, Board) error
+    Get(context.Context, string) (Board, error)
+    List(context.Context) ([]Board, error)
+    Update(context.Context, Board) error
+    Delete(context.Context, string) error
+    FindByProject(context.Context, string) (Board, error)
+}
+```
+
+`storage.JSONBoardRepository` is the initial adapter. It stores a versioned `boards.json` beside `settings.json`, uses a flushed temporary file plus replacement to avoid exposing partial JSON, and restores the backup left by an interrupted Windows replacement. A future SQL adapter can implement the same interface without changing the Kanban service, HTTP handlers, or Angular application.
+
+Primary board endpoints:
+
+```text
+GET   /api/boards
+GET   /api/projects/{projectID}/board
+GET   /api/projects/{projectID}/board/events
+POST  /api/projects/{projectID}/board/plans
+POST  /api/projects/{projectID}/board/plans/{planID}/review
+POST  /api/projects/{projectID}/board/plans/{planID}/retry
+PATCH /api/projects/{projectID}/board/tasks/{taskID}/move
+PATCH /api/projects/{projectID}/board/tasks/{taskID}/status
+```
+
+### Windows service runtime
+
+- The service starts one local `codex app-server --listen stdio://` child process and completes the JSON-RPC initialize handshake. Team Lead planning uses one durable, read-only Codex thread per plan so PM feedback can produce another revision without a cross-agent pipeline.
+- `/api/health` reports `codexAppServer: connected` when that runtime is ready. If Codex cannot start, the operator UI remains available and reports the runtime as `unavailable` instead of crashing the whole service.
+- The Go service owns source-scan jobs and launches Codex from a background context. Closing a tab, navigating away, or disconnecting an SSE client does not cancel the scan.
+- Every browser queries the service for the latest scan before subscribing to SSE, so Edge, Chrome, and a reopened browser reflect the same running, completed, or failed status without relying on browser-local storage.
+- Run the Windows service under the same Windows user account that owns the Codex login and application settings. Do not use `LocalSystem` unless Codex authentication, `CODEX_HOME`, repository access, and the executable `PATH` are explicitly provisioned for that account.
+- Executable resolution uses `CODEX_EXECUTABLE`, then `CODEX_CLI_PATH`, then the newest Windows Desktop Codex runtime that includes its sandbox helper, and finally `codex` from `PATH`. Set `CODEX_EXECUTABLE` explicitly for a Windows service installation. The service account must have read access to imported repositories and write access to the configured workspace and user settings directories.
+- App-server uses stdio JSONL rather than its experimental WebSocket transport. Service shutdown closes the app-server transport and waits for the child process to exit.
+- Browser disconnects are supported. A Windows service restart, process termination, machine shutdown, or power loss terminates the in-flight Codex turn; persisted board state converts the interrupted operation into an explicit retryable or blocked state on startup.
+
+### Project imports and local settings
+
+- `/projects` loads repositories available to the selected GitHub CLI credential (with PAT fallback), lets the user select one for cloning, or connects an existing local folder without copying it.
+- When multiple accounts are configured in GitHub CLI, `/projects` can switch the active `gh` account; the selected login is persisted in `settings.json`, while tokens remain in the GitHub CLI keyring.
+- `/work-items` switches between imported project boards and derives the Team Lead workspace from project metadata instead of using demo repositories.
+- `/settings` configures the clone path, Git provider, username and personal access token.
+- All non-secret app settings, including the selected theme, are stored in one user-level file: `~/.productcrew/settings.json`. Existing settings from the previous operating-system config directory are migrated automatically.
+- Imported-project metadata remains in `~/.productcrew/projects.json`; board plans, documents, tasks and activity are stored in `~/.productcrew/boards.json`.
+- Request descriptions and validated attachments are persisted inside each imported repository under `.productcrew/requests/<request-id>/`. Feature Radar and Bug Scanner runs are mirrored to `.productcrew/insights/<kind>/<run-id>/`, while completed task reports are mirrored to `.productcrew/tasks/<task-id>/`.
+- User-level JSON remains the runtime control plane and latest-result index. Project-local artifacts are immutable/readable history, so queue state and SSE recovery do not depend on scanning repository folders.
+- ProductCrew adds `/.productcrew/` to the repository's local Git exclude when possible; teams can opt into versioning selected artifacts explicitly instead of dirtying the worktree by default.
+- The PAT is stored separately in the operating system keyring and is never written to the JSON settings file or returned by the API.
+- The native folder picker currently targets the Windows desktop runtime.
+
+For isolated visual testing, `APP_DATA_DIR` can point the service at a temporary settings/projects/boards directory. Production should omit it so data stays under `~/.productcrew`.
+
+## Verification
+
+```powershell
+cd frontend
+npm test -- --watch=false
+npm run build:go
+cd ..
+go test ./...
+go vet ./...
+```
+
+## Legacy orchestrator
+
+The original GitHub-oriented mock flow is still available:
 
 ```bash
 go run cmd/main.go
 ```
-
-This runs the application in **Mock Mode**, simulating an issue flow and logging output to the terminal.

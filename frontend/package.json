@@ -1,0 +1,41 @@
+{
+  "name": "frontend",
+  "version": "0.0.0",
+  "scripts": {
+    "ng": "ng",
+    "start": "npm run dev",
+    "dev": "ng serve --host 127.0.0.1 --port 8000 --proxy-config proxy.conf.json --live-reload --hmr",
+    "build": "ng build",
+    "build:go": "ng build && node scripts/copy-to-go.mjs",
+    "test:ui": "ng build --configuration development && playwright test",
+    "tauri:prepare": "node scripts/build-go-sidecar.mjs",
+    "desktop:dev": "cd .. && frontend\\node_modules\\.bin\\tauri dev",
+    "desktop:build": "cd .. && frontend\\node_modules\\.bin\\tauri build",
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test"
+  },
+  "private": true,
+  "packageManager": "npm@10.9.4",
+  "dependencies": {
+    "@angular/common": "^21.2.0",
+    "@angular/compiler": "^21.2.0",
+    "@angular/core": "^21.2.0",
+    "@angular/forms": "^21.2.0",
+    "@angular/platform-browser": "^21.2.0",
+    "@angular/router": "^21.2.0",
+    "@tauri-apps/api": "^2.11.1",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@angular/build": "^21.2.20",
+    "@angular/cli": "^21.2.20",
+    "@angular/compiler-cli": "^21.2.0",
+    "@playwright/test": "^1.63.0",
+    "@tauri-apps/cli": "^2.11.4",
+    "jsdom": "^28.0.0",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2",
+    "vitest": "^4.0.8"
+  }
+}

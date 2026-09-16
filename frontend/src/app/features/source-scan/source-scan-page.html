@@ -1,0 +1,99 @@
+<app-shell>
+  <main class="feature-main source-scan-page">
+    <header class="feature-header scan-header">
+      <div>
+        <div class="eyebrow">AI CODE INTELLIGENCE</div>
+        <h1>Bug Scanner</h1>
+        <p>Let the selected AI runtime inspect the full repository, rank real bugs by severity, and hand findings into the delivery flow.</p>
+      </div>
+      <span class="status-pill scan-runtime"><span class="status-dot"></span>AI runtime · Read only</span>
+    </header>
+
+    @if (successMessage(); as success) {
+      <div class="notice success" role="status"><span class="material-symbols-rounded">check_circle</span><div><strong>Plan now started</strong><span>{{ success }}</span></div><a href="/work-items">Open Work board <span class="material-symbols-rounded">arrow_forward</span></a></div>
+    }
+    @if (errorMessage(); as error) {
+      <div class="notice error" role="alert"><span class="material-symbols-rounded">error</span><div><strong>Bug Scanner needs attention</strong><span>{{ error }}</span></div></div>
+    }
+
+    <section class="scan-config" aria-labelledby="scan-config-heading">
+      <div class="scan-config-copy">
+        <span class="scan-config-icon material-symbols-rounded">policy</span>
+        <div><h2 id="scan-config-heading">Configure AI review</h2><p>Generated files and dependencies are excluded automatically.</p></div>
+      </div>
+      <form class="scan-controls" [formGroup]="form" (ngSubmit)="startScan()">
+        <label class="field"><span>Scan depth</span><select formControlName="depth" [disabled]="scanning()"><option value="focused">Focused · Fast</option><option value="balanced">Balanced · Default</option><option value="deep">Deep · Thorough</option></select></label>
+        <button class="scan-button" type="submit" [disabled]="scanning() || !selectedProject()"><span class="material-symbols-rounded" [class.spin]="scanning()">{{ scanning() ? 'progress_activity' : 'bug_report' }}</span>{{ scanning() ? 'AI is scanning…' : result() ? 'Re-analyze' : 'Start bug scan' }}</button>
+      </form>
+      <fieldset class="scan-focus"><legend>Review focus</legend><div class="option-chips">
+        @for (focus of [['correctness', 'Correctness'], ['security', 'Security'], ['reliability', 'Reliability'], ['performance', 'Performance'], ['maintainability', 'Maintainability']]; track focus[0]) {
+          <label><input type="checkbox" [checked]="focusAreaSelected(focus[0])" (change)="toggleFocusArea(focus[0])"><span>{{ focus[1] }}</span></label>
+        }
+      </div></fieldset>
+    </section>
+
+    @if (scanning()) {
+      <section class="scan-progress" aria-live="polite"><div class="scan-orbit"><span class="material-symbols-rounded">manage_search</span></div><div><strong>AI is reading the repository</strong><p>Background scan {{ activeScanId() }} is streaming status updates and keeps running when you leave.</p></div><span class="scan-progress-label">Live via SSE</span></section>
+    } @else if (result(); as scan) {
+      <section class="scan-overview" aria-label="Scan summary">
+        <article class="scan-score"><span class="material-symbols-rounded">bug_report</span><div><small>Active findings</small><strong>{{ activeFindingCount() }}</strong></div></article>
+        <article class="severity-stat critical"><small>Critical</small><strong>{{ countSeverity('critical') }}</strong></article>
+        <article class="severity-stat high"><small>High</small><strong>{{ countSeverity('high') }}</strong></article>
+        <article class="severity-stat medium"><small>Medium</small><strong>{{ countSeverity('medium') }}</strong></article>
+        <article class="severity-stat low"><small>Low</small><strong>{{ countSeverity('low') }}</strong></article>
+        <article class="scan-meta"><small>{{ scan.scanId }} · {{ scan.durationMs / 1000 | number:'1.0-1' }}s</small><strong>{{ scan.projectName }}</strong><span>{{ scan.filesNote }}</span></article>
+      </section>
+
+      <section class="scan-summary"><span class="material-symbols-rounded">auto_awesome</span><div><strong>AI review summary</strong><p>{{ scan.summary }}</p></div></section>
+
+      <div class="findings-toolbar"><div><h2>Findings</h2><span>Sorted by severity and source evidence</span></div><div class="severity-filters" role="group" aria-label="Filter findings by severity">@for (filter of ['all', 'critical', 'high', 'medium', 'low']; track filter) {<button type="button" [class.active]="severityFilter() === filter" (click)="severityFilter.set($any(filter))">{{ filter === 'all' ? 'All ' + activeFindingCount() : filter + ' ' + countSeverity($any(filter)) }}</button>}</div></div>
+
+      <div class="findings-list">
+        @for (finding of visibleFindings(); track finding.id) {
+          <article class="finding-card" [class.critical]="finding.severity === 'critical'" [class.high]="finding.severity === 'high'" [class.medium]="finding.severity === 'medium'" [class.low]="finding.severity === 'low'">
+            <div class="finding-severity"><span>{{ finding.severity }}</span><small>{{ finding.category }}</small></div>
+            <div class="finding-content">
+              <div class="finding-title"><div><h3>{{ finding.title }}</h3><a [title]="finding.file + ':' + finding.line"><span class="material-symbols-rounded">code</span>{{ finding.file }}:{{ finding.line }}</a></div></div>
+              <p>{{ finding.description }}</p>
+              <details class="review-details">
+                <summary><span class="material-symbols-rounded">rate_review</span>Review evidence</summary>
+                <div class="review-thread">
+                  <section class="code-review-block" [attr.aria-label]="'Source excerpt from ' + finding.file">
+                    <header><span class="material-symbols-rounded">description</span><strong>{{ finding.file }}</strong><span>Line {{ finding.line }}</span></header>
+                    @if (finding.codeExcerpt?.length) {
+                      <div class="code-lines">
+                        @for (line of finding.codeExcerpt || []; track line.number) {
+                          <div class="code-line" [class.highlighted]="line.highlighted">
+                            <span class="line-number">{{ line.number }}</span><code>{{ line.content || ' ' }}</code>
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <div class="code-unavailable"><span class="material-symbols-rounded">code_off</span>Source excerpt is unavailable for this finding.</div>
+                    }
+                  </section>
+                  <section class="ai-review-comment">
+                    <div class="review-avatar"><span class="material-symbols-rounded">smart_toy</span></div>
+                    <div class="review-comment-card">
+                      <header><strong>AI reviewer</strong><span>commented on line {{ finding.line }}</span><span class="review-badge">AI review</span></header>
+                      <div class="review-comment-body"><p>{{ finding.evidence }}</p><div class="review-recommendation"><strong><span class="material-symbols-rounded">lightbulb</span>Recommended direction</strong><p>{{ finding.recommendation }}</p></div></div>
+                    </div>
+                  </section>
+                </div>
+              </details>
+            </div>
+            <div class="finding-actions">
+              <button type="button" class="plan-button" [disabled]="updatingFinding() === finding.id" [attr.aria-busy]="updatingAction() === 'plan' && updatingFinding() === finding.id" (click)="updateFinding(finding, 'plan')"><span class="material-symbols-rounded" [class.spin]="updatingAction() === 'plan' && updatingFinding() === finding.id">{{ updatingAction() === 'plan' && updatingFinding() === finding.id ? 'progress_activity' : 'account_tree' }}</span>{{ updatingAction() === 'plan' && updatingFinding() === finding.id ? 'Starting plan…' : 'Plan now' }}</button>
+              <button type="button" class="fix-button" [disabled]="updatingFinding() === finding.id" [attr.aria-busy]="updatingAction() === 'backlog' && updatingFinding() === finding.id" (click)="updateFinding(finding, 'backlog')"><span class="material-symbols-rounded">playlist_add</span>{{ updatingAction() === 'backlog' && updatingFinding() === finding.id ? 'Saving…' : 'Add to backlog' }}</button>
+              <button type="button" class="ignore-button" [disabled]="updatingFinding() === finding.id" [attr.aria-busy]="updatingAction() === 'ignore' && updatingFinding() === finding.id" (click)="updateFinding(finding, 'ignore')">{{ updatingAction() === 'ignore' && updatingFinding() === finding.id ? 'Ignoring…' : 'Ignore' }}</button>
+            </div>
+          </article>
+        } @empty {
+          <div class="scan-empty compact"><span class="material-symbols-rounded">task_alt</span><div><strong>No active findings in this filter</strong><p>Change the severity filter or start another scan.</p></div></div>
+        }
+      </div>
+    } @else {
+      <section class="scan-empty"><div class="scan-empty-visual"><span class="material-symbols-rounded">plagiarism</span></div><div><span class="eyebrow">READY WHEN YOU ARE</span><h2>Find bugs before they become work items</h2><p>Select an imported project and let the selected AI runtime build an evidence-backed review of the entire source tree.</p><ul><li><span class="material-symbols-rounded">sort</span>Severity-ranked findings</li><li><span class="material-symbols-rounded">code</span>Exact file and line evidence</li><li><span class="material-symbols-rounded">playlist_add</span>Controlled backlog handoff</li></ul></div></section>
+    }
+  </main>
+</app-shell>

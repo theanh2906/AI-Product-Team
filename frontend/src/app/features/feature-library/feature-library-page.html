@@ -1,0 +1,208 @@
+<app-shell>
+  <main class="feature-library-page">
+    <header class="feature-library-header">
+      <div>
+        <span class="eyebrow">PRODUCT KNOWLEDGE</span>
+        <h1>Feature Library</h1>
+        <p>One readable home for implemented and in-progress product features.</p>
+      </div>
+      <div class="feature-library-controls">
+        <label class="feature-search">
+          <span class="material-symbols-rounded">search</span>
+          <input type="search" placeholder="Search features" [value]="search()" (input)="setSearch($event)" aria-label="Search features">
+        </label>
+        <div class="feature-filter" aria-label="Filter features">
+          <button type="button" [class.active]="filter() === 'all'" (click)="setFilter('all')">All</button>
+          <button type="button" [class.active]="filter() === 'backlog'" (click)="setFilter('backlog')">Backlog</button>
+          <button type="button" [class.active]="filter() === 'active'" (click)="setFilter('active')">In progress</button>
+          <button type="button" [class.active]="filter() === 'shipped'" (click)="setFilter('shipped')">Shipped</button>
+        </div>
+        <label class="feature-sort">
+          <span class="material-symbols-rounded">sort</span>
+          <select [value]="sort()" (change)="setSort($event)" aria-label="Sort features">
+            <option value="updated">Recently updated</option>
+            <option value="created">Recently created</option>
+            <option value="title">Title</option>
+          </select>
+          <span class="material-symbols-rounded">expand_more</span>
+        </label>
+        <span class="feature-live-chip" [attr.data-state]="streamState()" [attr.title]="streamTitle()" aria-live="polite">
+          <i></i>
+          <span>{{ streamLabel() }}</span>
+          @if (lastSyncedAt()) { <small>{{ lastSyncedAt() | date:'HH:mm:ss' }}</small> }
+        </span>
+      </div>
+    </header>
+
+    @if (errorMessage()) {
+      <div class="feature-library-notice error" role="alert"><span class="material-symbols-rounded">error</span>{{ errorMessage() }}</div>
+    }
+
+    <div class="feature-library-workspace">
+      <aside class="feature-index" aria-label="Feature index">
+        <header>
+          <div><strong>{{ filteredFeatures().length }} features</strong><small>{{ selectedProject()?.name || 'No active project' }}</small></div>
+          <span class="material-symbols-rounded" aria-hidden="true">filter_list</span>
+        </header>
+
+        <div class="feature-index-scroll">
+          @if (loading()) {
+            <div class="feature-library-empty compact"><span class="material-symbols-rounded spin">progress_activity</span><strong>Loading features</strong><p>Reading the current Workboard state.</p></div>
+          } @else {
+            @for (section of sections(); track section.label) {
+              <section class="feature-index-section" [attr.data-state]="section.tone">
+                <h2>{{ section.label }} <span>{{ section.features.length }}</span></h2>
+                @for (feature of section.features; track feature.item.id) {
+                  <button type="button" class="feature-index-row" [class.selected]="isSelected(feature)" (click)="selectFeature(feature)" [attr.title]="feature.item.title">
+                    <span class="feature-key">{{ feature.item.key }}</span>
+                    <strong>{{ feature.item.title }}</strong>
+                    <span class="feature-row-meta">
+                      <span class="feature-state" [attr.data-state]="feature.state"><i></i>{{ stateLabel(feature.state) }}</span>
+                      <span class="feature-mini-progress" aria-hidden="true"><i [style.width.%]="feature.progress"></i></span>
+                      <b>{{ feature.progress }}%</b>
+                      <time>{{ feature.updatedAt | date:'MMM d' }}</time>
+                    </span>
+                  </button>
+                }
+              </section>
+            } @empty {
+              <div class="feature-library-empty"><span class="material-symbols-rounded">layers_clear</span><strong>No matching features</strong><p>Try a different search or status filter.</p></div>
+            }
+          }
+        </div>
+      </aside>
+
+      @if (selectedFeature(); as feature) {
+        <article class="feature-dossier">
+          <header class="feature-dossier-header">
+            <div class="feature-dossier-copy">
+              <div><span class="feature-key">{{ feature.item.key }}</span><span class="feature-state pill" [attr.data-state]="feature.state"><i></i>{{ stateLabel(feature.state) }}</span></div>
+              <h2 [attr.title]="feature.item.title">{{ feature.item.title }}</h2>
+              <p [attr.title]="feature.item.description">{{ feature.item.description }}</p>
+            </div>
+            <dl class="feature-meta">
+              <div><dt><span class="material-symbols-rounded">person</span>Source</dt><dd [attr.title]="feature.item.source || 'PM request'">{{ feature.item.source || 'PM request' }}</dd></div>
+              <div><dt><span class="material-symbols-rounded">deployed_code</span>Delivery</dt><dd [attr.title]="feature.item.deliveryTarget">{{ feature.item.deliveryTarget }}</dd></div>
+              <div><dt><span class="material-symbols-rounded">calendar_today</span>Created</dt><dd [attr.title]="(feature.item.createdAt | date:'mediumDate') || ''">{{ feature.item.createdAt | date:'mediumDate' }}</dd></div>
+              <div><dt><span class="material-symbols-rounded">update</span>Updated</dt><dd [attr.title]="(feature.updatedAt | date:'mediumDate') || ''">{{ feature.updatedAt | date:'mediumDate' }}</dd></div>
+            </dl>
+            <div class="feature-dossier-actions">
+              <a [routerLink]="['/work-items']" [queryParams]="workBoardQuery(feature)"><span class="material-symbols-rounded">view_kanban</span>Open in Work board</a>
+              <div><span>Overall progress</span><strong>{{ feature.progress }}%</strong></div>
+              <span class="feature-progress"><i [style.width.%]="feature.progress"></i></span>
+            </div>
+          </header>
+
+          <section class="feature-lifecycle" aria-labelledby="feature-lifecycle-heading">
+            <h3 id="feature-lifecycle-heading">Lifecycle</h3>
+            <div>
+              @for (stage of lifecycle(feature); track trackStage($index, stage); let last = $last) {
+                <article [attr.data-state]="stage.state">
+                  <span class="stage-mark"><span class="material-symbols-rounded">{{ stage.state === 'complete' ? 'check' : stage.state === 'blocked' ? 'priority_high' : stage.icon }}</span></span>
+                  <strong>{{ stage.label }}</strong>
+                  <small>{{ stage.date ? (stage.date | date:'MMM d, y') : stage.state === 'active' ? 'In progress' : 'Pending' }}</small>
+                </article>
+                @if (!last) { <i class="stage-connector" [class.complete]="stage.state === 'complete'"></i> }
+              }
+            </div>
+          </section>
+
+          <div class="feature-dossier-grid">
+            <section class="feature-delivery" aria-labelledby="feature-delivery-heading">
+              <header><div><h3 id="feature-delivery-heading">Delivery tickets</h3><p>Tasks created from this feature's approved plan.</p></div><span>{{ feature.tasks.length }}</span></header>
+              @for (group of ticketGroups(feature); track group.role) {
+                <section class="ticket-group" [attr.data-role]="group.role">
+                  <header><span class="material-symbols-rounded">{{ group.icon }}</span><strong>{{ group.label }}</strong><span>{{ group.tasks.length }}</span></header>
+                  @for (task of group.tasks; track task.id) {
+                    <details class="feature-ticket">
+                      <summary>
+                        <span class="material-symbols-rounded ticket-chevron">expand_more</span>
+                        <b>{{ task.key }}</b>
+                        <strong [attr.title]="task.title">{{ task.title }}</strong>
+                        <span class="ticket-status" [attr.data-status]="task.status"><i></i>{{ taskStatusLabel(task.status) }}</span>
+                        <small>{{ task.sequenceOrder || '—' }}</small>
+                      </summary>
+                      <div>
+                        <p [attr.title]="task.description">{{ task.description }}</p>
+                        @if (task.acceptanceCriteria.length > 0) {
+                          <ul>@for (criterion of task.acceptanceCriteria; track criterion) { <li><span class="material-symbols-rounded">check_circle</span>{{ criterion }}</li> }</ul>
+                        }
+                        @if (task.execution?.summary) { <blockquote><strong>Agent outcome</strong>{{ task.execution?.summary }}</blockquote> }
+                      </div>
+                    </details>
+                  }
+                </section>
+              } @empty {
+                <div class="feature-section-empty"><span class="material-symbols-rounded">pending_actions</span><div><strong>No delivery tickets yet</strong><p>This feature has not completed Team Lead planning.</p></div></div>
+              }
+            </section>
+
+            <aside class="feature-supporting">
+              <section class="feature-artifacts">
+                <header><div><h3>Design artifacts</h3><p>Mockups captured from Designer tasks.</p></div><span>{{ designPreviewCount(feature) }}</span></header>
+                @for (entry of artifacts(feature).slice(0, 3); track entry.task.id + ':' + entry.artifact.id) {
+                  <button type="button" (click)="selectedArtifact.set(entry)">
+                    <img [src]="artifactUrl(entry)" [alt]="entry.artifact.title">
+                    <span><strong [attr.title]="entry.artifact.title">{{ entry.artifact.title }}</strong><small [attr.title]="entry.task.key + ' · ' + ((entry.createdAt | date:'mediumDate') || '')">{{ entry.task.key }} · {{ entry.createdAt | date:'mediumDate' }}</small></span>
+                    <span class="material-symbols-rounded">zoom_in</span>
+                  </button>
+                }
+                @for (entry of designSources(feature).slice(0, 3); track entry.task.id + ':' + entry.path) {
+                  <a class="feature-design-source-link" [href]="designSourceHref(entry)" target="_blank" rel="noopener" [attr.aria-label]="'Open ' + entry.title + ' HTML mockup'" [attr.title]="entry.title">
+                    <span class="feature-design-source-thumbnail" aria-hidden="true">
+                      <span class="material-symbols-rounded">web_asset</span>
+                    </span>
+                    <span><strong [attr.title]="entry.title">{{ entry.title }}</strong><small [attr.title]="entry.task.key + ' · HTML mockup'">{{ entry.task.key }} · HTML mockup</small></span>
+                    <span class="material-symbols-rounded">open_in_new</span>
+                  </a>
+                }
+                @if (designPreviewCount(feature) === 0) {
+                  <div class="feature-section-empty compact"><span class="material-symbols-rounded">image_not_supported</span><div><strong>No mockups yet</strong><p>Designer previews will appear here.</p></div></div>
+                }
+              </section>
+
+              <section class="feature-history">
+                <header><div><h3>History</h3><p>Durable milestones from the feature lifecycle.</p></div><span>{{ history(feature).length }}</span></header>
+                <ol>
+                  @for (event of history(feature); track event.id) {
+                    <li [attr.data-tone]="event.tone">
+                      <i><span class="material-symbols-rounded">{{ event.tone === 'error' ? 'priority_high' : event.tone === 'warning' ? 'rate_review' : event.tone === 'active' ? 'pending' : 'check' }}</span></i>
+                      <div><strong [attr.title]="event.label">{{ event.label }}</strong><small [attr.title]="event.actor">{{ event.actor }}</small></div>
+                      <time [attr.title]="(event.createdAt | date:'medium') || ''">{{ event.createdAt | date:'MMM d, h:mm a' }}</time>
+                    </li>
+                  }
+                </ol>
+              </section>
+            </aside>
+          </div>
+
+          <footer class="feature-summary-grid">
+            <section><h3>Description</h3><p [attr.title]="feature.item.description">{{ feature.item.description }}</p></section>
+            <section><h3>Acceptance outcome</h3>
+              @if (feature.item.acceptanceCriteria.length > 0) {
+                <ul>@for (criterion of feature.item.acceptanceCriteria; track criterion) { <li [attr.title]="criterion"><span class="material-symbols-rounded">{{ feature.state === 'shipped' ? 'check_circle' : 'radio_button_unchecked' }}</span>{{ criterion }}</li> }</ul>
+              } @else { <p>No explicit acceptance criteria were captured.</p> }
+            </section>
+            <section><h3>Plan documents</h3>
+              @for (document of feature.plan?.documents || []; track document.id) {
+                <details class="feature-document"><summary [attr.title]="document.title"><span class="material-symbols-rounded">description</span><strong>{{ document.title }}</strong><span class="material-symbols-rounded">expand_more</span></summary><pre>{{ document.content }}</pre></details>
+              } @empty { <p>No persistent plan documents yet.</p> }
+            </section>
+          </footer>
+        </article>
+      } @else if (!loading()) {
+        <section class="feature-dossier-empty"><span class="material-symbols-rounded">layers</span><h2>No features yet</h2><p>Create a Feature request from the Work board to start the library.</p><a routerLink="/work-items" [queryParams]="{ projectId: selectedProjectId() }"><span class="material-symbols-rounded">view_kanban</span>Open Work board</a></section>
+      }
+    </div>
+  </main>
+
+  @if (selectedArtifact(); as entry) {
+    <div class="feature-artifact-backdrop" (click)="selectedArtifact.set(null)">
+      <section class="feature-artifact-lightbox" role="dialog" aria-modal="true" aria-label="Design artifact preview" (click)="$event.stopPropagation()">
+        <header><div><span class="material-symbols-rounded">image</span><div><strong>{{ entry.artifact.title }}</strong><small>{{ entry.task.key }} · {{ entry.artifact.width }} × {{ entry.artifact.height }} PNG</small></div></div><button type="button" aria-label="Close design preview" (click)="selectedArtifact.set(null)"><span class="material-symbols-rounded">close</span></button></header>
+        <div><img [src]="artifactUrl(entry)" [alt]="entry.artifact.title"></div>
+      </section>
+    </div>
+  }
+
+</app-shell>

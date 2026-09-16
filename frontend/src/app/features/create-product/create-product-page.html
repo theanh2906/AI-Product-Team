@@ -1,0 +1,73 @@
+<app-shell>
+  <main class="create-product-page">
+    <header class="forge-header">
+      <a routerLink="/projects" class="back-link"><span class="material-symbols-rounded">arrow_back</span>Projects</a>
+      <div class="forge-title">
+        <span class="eyebrow">NEW LOCAL PRODUCT</span>
+        <h1>{{ blueprint() ? 'Review the product blueprint' : 'Create a product from scratch' }}</h1>
+        <p>{{ blueprint() ? 'Confirm the architecture and delivery shape before ProductCrew writes any source files.' : 'Start with the outcome. ProductCrew will shape a safe blueprint before it creates any files.' }}</p>
+      </div>
+      <ol class="forge-steps" aria-label="Product creation progress">
+        <li class="done"><span>1</span>Idea</li>
+        <li [class.active]="blueprint()"><span>2</span>Blueprint</li>
+        <li><span>3</span>Scaffold</li>
+        <li><span>4</span>Build</li>
+        <li><span>5</span>Verify</li>
+      </ol>
+    </header>
+
+    @if (error(); as message) {
+      <div class="forge-notice error" role="alert"><span class="material-symbols-rounded">error</span><div><strong>Creation needs attention</strong><p>{{ message }}</p></div></div>
+    }
+
+    @if (!blueprint()) {
+      <form class="forge-layout" [formGroup]="form" (ngSubmit)="shapeBlueprint()">
+        <div class="forge-main">
+          <section class="forge-card composer-card">
+            <label for="product-idea">What should ProductCrew build?</label>
+            <textarea id="product-idea" formControlName="idea" rows="7" placeholder="Describe the user, problem, desired outcome, first useful workflow, and anything that must not change."></textarea>
+            <div class="composer-footer"><small>{{ form.controls.idea.value.length }} / 6000</small><button class="primary-button" type="submit" [disabled]="form.invalid || shaping()"><span class="material-symbols-rounded" [class.spin]="shaping()">{{ shaping() ? 'progress_activity' : 'auto_awesome' }}</span>{{ shaping() ? 'Shaping blueprint…' : 'Shape product blueprint' }}</button></div>
+          </section>
+
+          <section class="forge-card">
+            <div class="section-heading"><div><span class="eyebrow">STARTING POINT</span><h2>Choose how much guidance you need</h2></div></div>
+            <div class="starting-grid" role="radiogroup" aria-label="Starting point">
+              <button type="button" [class.active]="startingPoint() === 'blank'" (click)="setStartingPoint('blank')"><span class="material-symbols-rounded">draft</span><strong>Blank product</strong><small>Start from your outcome</small></button>
+              <button type="button" [class.active]="startingPoint() === 'guided'" (click)="setStartingPoint('guided')"><span class="material-symbols-rounded">route</span><strong>Guided brief</strong><small>Use a practical prompt frame</small></button>
+              <button type="button" [class.active]="startingPoint() === 'template'" (click)="setStartingPoint('template')"><span class="material-symbols-rounded">dashboard_customize</span><strong>Desktop template</strong><small>Start with Tauri foundation</small></button>
+            </div>
+          </section>
+
+          <section class="forge-card foundation-card">
+            <div class="section-heading"><div><span class="eyebrow">PROJECT FOUNDATION</span><h2>Local workspace setup</h2></div><span class="local-badge"><span class="material-symbols-rounded">lock</span>Local only</span></div>
+            <div class="foundation-grid">
+              <label><span>Product name</span><input formControlName="productName" placeholder="example-product"><small>Lowercase letters, numbers and hyphens.</small></label>
+              <label><span>Application profile</span><select formControlName="profileId">@for (profile of profiles(); track profile.id) {<option [value]="profile.id">{{ profile.name }}</option>}</select></label>
+              <label class="wide"><span>Destination parent</span><div class="path-control"><input formControlName="destinationParent"><button type="button" (click)="pickDestination()"><span class="material-symbols-rounded">folder_open</span>Browse</button></div></label>
+              <label class="toggle-row wide"><input type="checkbox" formControlName="initializeGit"><span><strong>Initialize Git</strong><small>Create a local repository with main as the initial branch.</small></span></label>
+            </div>
+          </section>
+        </div>
+
+        <aside class="forge-rail">
+          <section class="rail-card"><span class="material-symbols-rounded rail-icon">shield_lock</span><h3>Nothing is written yet</h3><p>ProductCrew saves the brief as a local draft. Source files are created only after you approve the blueprint.</p></section>
+          <section class="rail-card"><span class="eyebrow">BLUEPRINT ENGINE</span><h3>{{ providerLabel() }}</h3><p>Your selected local AI structures the outcome in read-only mode. The scaffold itself remains deterministic and rollback-safe.</p></section>
+          <section class="rail-card checklist"><h3>Approval guard</h3><p><span class="material-symbols-rounded">check_circle</span>Destination collision check</p><p><span class="material-symbols-rounded">check_circle</span>Required CLI preflight</p><p><span class="material-symbols-rounded">check_circle</span>Atomic staging publish</p><p><span class="material-symbols-rounded">check_circle</span>No secrets provisioned</p></section>
+        </aside>
+      </form>
+    } @else if (blueprint(); as plan) {
+      <div class="blueprint-layout">
+        <div class="forge-main">
+          <section class="forge-card blueprint-summary"><span class="eyebrow">PRODUCT OUTCOME · {{ plan.source === 'profile' ? 'SAFE PROFILE' : plan.source }}</span><h2>{{ plan.productName }}</h2><p>{{ plan.summary }}</p>@if (plan.warning) {<p class="blueprint-warning"><span class="material-symbols-rounded">info</span>{{ plan.warning }}</p>}<div class="criteria-list">@for (criterion of plan.criteria; track criterion) {<span><i class="material-symbols-rounded">check_circle</i>{{ criterion }}</span>}</div></section>
+          <section class="forge-card"><div class="section-heading"><div><span class="eyebrow">ARCHITECTURE</span><h2>Foundation and repository shape</h2></div><span class="status-chip">{{ plan.profileName }}</span></div><div class="component-list">@for (component of plan.components; track component.path) {<article><span class="material-symbols-rounded">deployed_code</span><div><strong>{{ component.name }}</strong><code>{{ component.path }}</code><p>{{ component.description }}</p></div></article>}</div></section>
+          <section class="forge-card"><div class="section-heading"><div><span class="eyebrow">DELIVERY ROADMAP</span><h2>First milestones</h2></div></div><div class="milestone-list">@for (milestone of plan.milestones; track milestone.title; let index = $index) {<article><span>{{ index + 1 }}</span><div><strong>{{ milestone.title }}</strong><small>{{ milestone.roles.join(' · ') }}</small></div><b>{{ milestone.tasks }} tasks</b></article>}</div></section>
+          <section class="forge-card safety-card" [class.blocked]="!plan.preflight.ready"><div class="section-heading"><div><span class="eyebrow">SAFETY REVIEW</span><h2>{{ plan.preflight.ready ? 'Ready to create locally' : 'Toolchain needs attention' }}</h2></div><span class="material-symbols-rounded">{{ plan.preflight.ready ? 'verified_user' : 'warning' }}</span></div><p class="destination-line"><span class="material-symbols-rounded">folder_open</span>{{ plan.destination }}</p>@for (warning of plan.preflight.warnings; track warning) {<p class="preflight-warning">{{ warning }}</p>}<small>Available: {{ plan.preflight.tools.join(', ') || 'No required tools detected' }}</small></section>
+        </div>
+        <aside class="forge-rail blueprint-rail">
+          <section class="rail-card"><span class="eyebrow">DECISIONS</span>@for (decision of plan.decisions; track decision) {<p class="decision"><span class="material-symbols-rounded">check</span>{{ decision }}</p>}</section>
+          <section class="rail-card create-actions"><h3>Approve this blueprint?</h3><p>ProductCrew will scaffold into a temporary sibling folder, publish atomically, import the project, and create its first Work Board request.</p><button class="primary-button" type="button" [disabled]="!plan.preflight.ready || creating()" (click)="approveAndCreate()"><span class="material-symbols-rounded" [class.spin]="creating()">{{ creating() ? 'progress_activity' : 'rocket_launch' }}</span>{{ creating() ? 'Creating product…' : 'Approve & create workspace' }}</button><button class="secondary-button" type="button" [disabled]="creating()" (click)="backToBrief()">Back to brief</button></section>
+        </aside>
+      </div>
+    }
+  </main>
+</app-shell>

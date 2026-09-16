@@ -1,0 +1,54 @@
+<app-shell>
+  <main class="feature-main source-scan-page feature-radar-page">
+    <header class="feature-header scan-header">
+      <div><div class="eyebrow">AI PRODUCT INTELLIGENCE</div><h1>Feature Radar</h1><p>Discover evidence-backed opportunities that fit the product and are ready for Team Lead planning.</p></div>
+      <span class="status-pill scan-runtime"><span class="status-dot"></span>AI runtime · Read only</span>
+    </header>
+
+    @if (successMessage(); as success) { <div class="notice success" role="status"><span class="material-symbols-rounded">check_circle</span><div><strong>Plan now started</strong><span>{{ success }}</span></div><a href="/work-items">Open Work board <span class="material-symbols-rounded">arrow_forward</span></a></div> }
+    @if (errorMessage(); as error) { <div class="notice error" role="alert"><span class="material-symbols-rounded">error</span><div><strong>Feature Radar needs attention</strong><span>{{ error }}</span></div></div> }
+
+    <section class="scan-config radar-config">
+      <div class="scan-config-copy"><span class="scan-config-icon material-symbols-rounded">radar</span><div><h2>Opportunity scan</h2><p>Saved per project. Re-analysis only runs when requested.</p></div></div>
+      <div class="scan-controls">
+        <label class="field"><span>Analysis depth</span><select [ngModel]="depth()" (ngModelChange)="depth.set($event)" [disabled]="analyzing()"><option value="focused">Focused · Quick wins</option><option value="balanced">Balanced · Default</option><option value="deep">Deep · Product-wide</option></select></label>
+        <button class="scan-button" type="button" (click)="analyze(!!result())" [disabled]="analyzing() || !projectId()"><span class="material-symbols-rounded" [class.spin]="analyzing()">{{ analyzing() ? 'progress_activity' : result() ? 'refresh' : 'radar' }}</span>{{ analyzing() ? 'Analyzing…' : result() ? 'Re-analyze' : 'Analyze project' }}</button>
+      </div>
+      <div class="radar-assurance"><span class="material-symbols-rounded">verified_user</span><span>Only evidence-backed, implementation-feasible ideas are returned.</span><a href="/work-items">Open backlog <span class="material-symbols-rounded">arrow_forward</span></a></div>
+    </section>
+
+    @if (analyzing()) {
+      <section class="scan-progress"><div class="scan-orbit"><span class="material-symbols-rounded">travel_explore</span></div><div><strong>AI is mapping the product</strong><p>{{ activeAnalysisId() }} keeps running in the local service even if this browser closes.</p></div><span class="scan-progress-label">Live via SSE</span></section>
+    } @else if (result(); as analysis) {
+      <section class="scan-overview radar-overview" aria-label="Feature analysis summary">
+        <article class="scan-score"><span class="material-symbols-rounded">lightbulb</span><div><small>Ready to consider</small><strong>{{ suggestions().length }}</strong></div></article>
+        <article class="scan-score"><span class="material-symbols-rounded">inventory_2</span><div><small>Added to backlog</small><strong>{{ backlogCount() }}</strong></div></article>
+        <article class="scan-meta"><small>{{ analysis.analysisId }} · {{ analysis.durationMs / 1000 | number:'1.0-1' }}s</small><strong>{{ analysis.projectName }}</strong><span>{{ analysis.analyzedAt | date:'medium' }} · {{ analysis.scopeNote }}</span></article>
+      </section>
+
+      <section class="scan-summary"><span class="material-symbols-rounded">auto_awesome</span><div><strong>AI opportunity summary</strong><p>{{ analysis.summary }}</p></div></section>
+
+      <div class="findings-toolbar radar-toolbar"><div><h2>Recommended opportunities</h2><span>Ranked by implementation feasibility, highest first</span></div><span class="radar-saved"><span class="material-symbols-rounded">cloud_done</span>Saved locally</span></div>
+      <div class="radar-list">
+        @for (item of suggestions(); track item.id; let rank = $index) {
+          <article class="radar-card">
+            <aside class="radar-rank"><span>#{{ rank + 1 }}</span><strong>{{ item.feasibility }}%</strong><small>feasible</small><progress max="100" [value]="item.feasibility"></progress></aside>
+            <div class="radar-content">
+              <div class="radar-card-header"><div><span class="radar-category">{{ item.category }}</span><h3>{{ item.title }}</h3></div><div class="radar-tags"><span>{{ item.impact }} impact</span><span>{{ item.effort }} effort</span><span>{{ item.deliveryTarget }}</span></div></div>
+              <p class="radar-problem">{{ item.problem }}</p>
+              <div class="radar-proposal"><span class="material-symbols-rounded">tips_and_updates</span><div><strong>Suggested feature</strong><p>{{ item.proposal }}</p></div></div>
+              <details><summary><span class="material-symbols-rounded">fact_check</span>Implementation evidence & readiness</summary><div class="radar-details"><section><h4>Repository evidence</h4>@for (evidence of item.evidence; track evidence.file + evidence.line) { <div class="evidence-row"><code>{{ evidence.file }}:{{ evidence.line }}</code><p>{{ evidence.detail }}</p></div> }</section><section><h4>Implementation outline</h4><ol>@for (step of item.implementationOutline; track step) { <li>{{ step }}</li> }</ol><h4>Acceptance criteria</h4><ul>@for (criterion of item.acceptanceCriteria; track criterion) { <li>{{ criterion }}</li> }</ul></section></div></details>
+            </div>
+            <div class="finding-actions radar-actions">
+              <button class="plan-button" type="button" [disabled]="updating() === item.id" [attr.aria-busy]="updatingAction() === 'plan' && updating() === item.id" (click)="action(item, 'plan')"><span class="material-symbols-rounded" [class.spin]="updatingAction() === 'plan' && updating() === item.id">{{ updatingAction() === 'plan' && updating() === item.id ? 'progress_activity' : 'account_tree' }}</span>{{ updatingAction() === 'plan' && updating() === item.id ? 'Starting plan…' : 'Plan now' }}</button>
+              <button class="fix-button" type="button" [disabled]="updating() === item.id" [attr.aria-busy]="updatingAction() === 'backlog' && updating() === item.id" (click)="action(item, 'backlog')"><span class="material-symbols-rounded">playlist_add</span>{{ updatingAction() === 'backlog' && updating() === item.id ? 'Saving…' : 'Add to backlog' }}</button>
+              <button class="ignore-button" type="button" [disabled]="updating() === item.id" [attr.aria-busy]="updatingAction() === 'ignore' && updating() === item.id" (click)="action(item, 'ignore')">{{ updatingAction() === 'ignore' && updating() === item.id ? 'Ignoring…' : 'Ignore' }}</button>
+            </div>
+          </article>
+        } @empty { <section class="scan-empty compact"><span class="material-symbols-rounded">task_alt</span><div><strong>All suggestions have been triaged</strong><p>Open the Work board to plan backlog items, or re-analyze when the project changes.</p></div></section> }
+      </div>
+    } @else {
+      <section class="scan-empty radar-empty"><div class="scan-empty-visual"><span class="material-symbols-rounded">radar</span></div><div><span class="eyebrow">PRODUCT DISCOVERY</span><h2>Turn the existing codebase into its next roadmap</h2><p>Feature Radar reads the full project, finds meaningful gaps, and prepares feasible work for the backlog.</p><ul><li><span class="material-symbols-rounded">source</span>Grounded in exact source evidence</li><li><span class="material-symbols-rounded">speed</span>Ranked by feasibility</li><li><span class="material-symbols-rounded">view_kanban</span>One-click backlog handoff</li></ul></div></section>
+    }
+  </main>
+</app-shell>

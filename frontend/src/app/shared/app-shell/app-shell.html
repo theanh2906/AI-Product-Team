@@ -1,0 +1,163 @@
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Primary navigation">
+    <a class="brand" routerLink="/work-items" queryParamsHandling="preserve" aria-label="ProductCrew home">
+      <img class="brand-mark" src="/assets/brand/product-team-logo-64.png" alt="" width="28" height="28">
+      <span class="brand-copy"><strong>ProductCrew</strong><small>{{ appVersion() }}</small></span>
+    </a>
+
+    <label class="global-project-switcher">
+      <span>Active project</span>
+      <div>
+        <span class="material-symbols-rounded">folder_open</span>
+        <select
+          [ngModel]="projectContext.selectedProjectId()"
+          [disabled]="projectContext.loading() || projectContext.projects().length === 0"
+          (ngModelChange)="selectProject($event)"
+          aria-label="Select active project"
+        >
+          @if (projectContext.projects().length === 0) {
+            <option value="">No projects</option>
+          }
+          @for (project of projectContext.projects(); track project.id) {
+            <option [value]="project.id">{{ project.name }}</option>
+          }
+        </select>
+        <span class="material-symbols-rounded chevron">expand_more</span>
+      </div>
+    </label>
+
+    <nav class="nav-list">
+      <a routerLink="/features" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">layers</span>Features</a>
+      <a routerLink="/work-items" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">view_kanban</span>Work board</a>
+      <a routerLink="/projects" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">folder_open</span>Projects</a>
+      <a routerLink="/project-atlas" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">account_tree</span>Project Atlas</a>
+      <a routerLink="/source-scan" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">bug_report</span>Bug Scanner</a>
+      <a routerLink="/feature-radar" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">radar</span>Feature Radar</a>
+      <a routerLink="/observability" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">monitoring</span>Observability</a>
+      <a routerLink="/settings" queryParamsHandling="preserve" routerLinkActive="active"><span class="material-symbols-rounded">settings</span>Settings</a>
+    </nav>
+
+    <div class="notification-control">
+      <button type="button" class="notification-toggle" (click)="toggleNotifications($event)" [attr.aria-expanded]="notificationPanelOpen()" aria-label="Open notifications">
+        <span class="material-symbols-rounded">notifications</span>
+        <span>Notifications</span>
+        @if (notifications.unreadCount() > 0) { <b>{{ notifications.unreadCount() > 99 ? '99+' : notifications.unreadCount() }}</b> }
+      </button>
+      @if (notificationPanelOpen()) {
+        <section class="notification-panel" aria-label="Notifications" (click)="$event.stopPropagation()">
+          <header><div><strong>Notifications</strong><small>{{ notifications.unreadCount() }} unread</small></div><button type="button" [disabled]="notifications.unreadCount() === 0" (click)="notifications.markAllRead()">Mark all read</button></header>
+          <div class="notification-list">
+            @if (notifications.loading()) { <div class="notification-empty">Loading notifications…</div> }
+            @for (item of notifications.items(); track item.id) {
+              <article class="notification-item" [class.unread]="!item.read" [attr.data-level]="item.level">
+                <button type="button" class="notification-body" (click)="openNotification(item)">
+                  <span class="material-symbols-rounded">{{ iconFor(item) }}</span>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                    @if (item.projectName) { <small class="notification-project"><span class="material-symbols-rounded">folder_open</span>{{ item.projectName }}</small> }
+                    <p>{{ item.message }}</p>
+                    <small>{{ item.createdAt | date:'medium' }}</small>
+                  </div>
+                </button>
+                @if (item.projectId) {
+                  <button type="button" class="notification-action" (click)="openNotificationBoard($event, item)">
+                    <span class="material-symbols-rounded">view_kanban</span>Open board
+                  </button>
+                }
+                @if (!item.read) { <i aria-label="Unread"></i> }
+              </article>
+            } @empty {
+              @if (!notifications.loading()) { <div class="notification-empty"><span class="material-symbols-rounded">notifications_none</span><strong>All caught up</strong><p>Background agent updates will appear here.</p></div> }
+            }
+          </div>
+          <footer><button type="button" (click)="notifications.clearRead()">Clear read notifications</button></footer>
+        </section>
+      }
+    </div>
+
+    <button
+      type="button"
+      class="theme-toggle"
+      [class.active]="theme.isDark()"
+      [disabled]="theme.saving()"
+      (click)="theme.toggle()"
+      [attr.aria-label]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'"
+    >
+      <span class="material-symbols-rounded" aria-hidden="true">{{ theme.isDark() ? 'light_mode' : 'dark_mode' }}</span>
+      <span>{{ theme.isDark() ? 'Light mode' : 'Dark mode' }}</span>
+      <span class="theme-switch" aria-hidden="true"><i></i></span>
+    </button>
+
+    <div
+      class="local-status"
+      [class.checking]="runtimeHealth.status() === null"
+      [class.unavailable]="runtimeHealth.status()?.state === 'unavailable'"
+      [class.unreachable]="runtimeHealth.status()?.state === 'unreachable'"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="status-dot" aria-hidden="true"></span>
+      @switch (runtimeHealth.status()?.state) {
+        @case ('connected') {
+          <div><strong>Local runtime ready</strong><small>{{ connectedSubtitle() }}</small></div>
+        }
+        @case ('unavailable') {
+          <div><strong>Runtime unavailable</strong><small>Selected provider: {{ providerLabel(runtimeHealth.status()?.aiProvider) }}</small></div>
+        }
+        @case ('unreachable') {
+          <div><strong>Local service unreachable</strong><small>Check <a routerLink="/settings">Settings</a></small></div>
+        }
+        @default {
+          <div><strong>Checking runtime…</strong></div>
+        }
+      }
+    </div>
+  </aside>
+
+  <ng-content />
+
+  @if (notifications.toast(); as toast) {
+    <button type="button" class="notification-toast" [attr.data-level]="toast.level" (click)="openNotification(toast)">
+      <span class="material-symbols-rounded">{{ iconFor(toast) }}</span>
+      <div>
+        <strong>{{ toast.title }}</strong>
+        @if (toast.projectName) { <small class="notification-project"><span class="material-symbols-rounded">folder_open</span>{{ toast.projectName }}</small> }
+        <p>{{ toast.message }}</p>
+      </div>
+      <span class="material-symbols-rounded toast-close" (click)="$event.stopPropagation(); notifications.dismissToast()">close</span>
+    </button>
+  }
+
+  @if (updates.shouldShowToast()) {
+    @if (updates.status(); as update) {
+      <section class="app-update-toast" role="status" aria-live="polite">
+        <span class="material-symbols-rounded">system_update</span>
+        <div><strong>ProductCrew {{ update.latestVersion }} is ready</strong><p>{{ update.notes || 'A verified installer update is available.' }}</p><small>Current version {{ update.currentVersion }}</small></div>
+        <div class="app-update-actions">
+          <button type="button" class="update-now" [disabled]="updates.installing()" (click)="updates.install()">{{ updates.installing() ? 'Starting…' : 'Update now' }}</button>
+          <button type="button" class="update-dismiss" aria-label="Dismiss update" (click)="updates.dismiss()"><span class="material-symbols-rounded">close</span></button>
+        </div>
+      </section>
+    }
+  }
+
+  @if (updates.pendingInstallConfirmation(); as activeTask) {
+    <div class="app-confirm-backdrop" (click)="updates.cancelInstallConfirmation()">
+      <section class="app-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="update-confirm-title" (click)="$event.stopPropagation()">
+        <div class="app-confirm-icon"><span class="material-symbols-rounded">warning</span></div>
+        <div class="app-confirm-copy">
+          <span class="eyebrow">Installer update</span>
+          <h2 id="update-confirm-title">Pause before updating?</h2>
+          <p><strong>{{ activeTask.key }}</strong> is currently running: {{ activeTask.title }}</p>
+          <small>Updating ProductCrew may interrupt the active AI session. Continue only if you are okay with that risk.</small>
+        </div>
+        <footer>
+          <button type="button" class="confirm-secondary" (click)="updates.cancelInstallConfirmation()">Cancel</button>
+          <button type="button" class="confirm-primary" [disabled]="updates.installing()" (click)="updates.confirmInstall()">
+            <span class="material-symbols-rounded">system_update</span>Continue update
+          </button>
+        </footer>
+      </section>
+    </div>
+  }
+</div>

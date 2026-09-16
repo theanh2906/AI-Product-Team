@@ -1,0 +1,100 @@
+name: Deploy ProductCrew installer to Cloudflare R2
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: Release notes written into installer-latest.json
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: deploy-productcrew-installer-r2
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  R2_ENDPOINT: https://8b8d3182a90c830065dcb9563bd9c9f8.r2.cloudflarestorage.com
+  R2_BUCKET: installers
+  R2_PREFIX: ProductCrew
+  PRODUCTCREW_UPDATE_DIR: ${{ github.workspace }}\dist\r2-publish
+  PRODUCTCREW_INSTALLER_PUBLIC_BASE_URL: https://installers.bennasolutions.com/ProductCrew
+  AWS_DEFAULT_REGION: auto
+  AWS_EC2_METADATA_DISABLED: true
+
+jobs:
+  build-and-upload-installer:
+    name: Build NSIS installer and upload to R2
+    runs-on: windows-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Show toolchain versions
+        shell: pwsh
+        run: |
+          node -v
+          npm -v
+          go version
+          rustc --version
+          cargo --version
+
+      - name: Install frontend dependencies
+        shell: pwsh
+        run: |
+          Set-Location frontend
+          npm ci
+
+      - name: Run frontend tests
+        shell: pwsh
+        run: |
+          Set-Location frontend
+          npm test
+
+      - name: Run Go tests
+        shell: pwsh
+        run: go test ./...
+
+      - name: Run Rust tests
+        shell: pwsh
+        run: cargo test --manifest-path .\src-tauri\Cargo.toml --features installer-updates
+
+      - name: Build and deploy installer update package
+        shell: pwsh
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          $notes = "${{ github.event.inputs.release_notes || github.ref_name }}"
+          .\scripts\deploy-installer-r2.ps1 -ReleaseNotes $notes
+
+      - name: Upload GitHub workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: productcrew-installer-${{ github.run_number }}
+          path: |
+            ${{ env.PRODUCTCREW_UPDATE_DIR }}\installer-latest.json
+            ${{ env.PRODUCTCREW_UPDATE_DIR }}\*.exe
+          if-no-files-found: error
