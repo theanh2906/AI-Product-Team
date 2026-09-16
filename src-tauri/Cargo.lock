@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "productcrew-desktop"
-version = "0.1.145"
+version = "0.1.150"
 dependencies = [
  "axum",
  "futures-util",

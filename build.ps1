@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $installer = $false
 $showHelp = $false
 $cleanDistribution = $true
-$version = '0.1.145'
+$version = '0.1.150'
 $versionPattern = '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$'
 
 for ($index = 0; $index -lt $args.Count; $index++) {

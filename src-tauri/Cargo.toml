@@ -1,6 +1,6 @@
 [package]
 name = "productcrew-desktop"
-version = "0.1.145"
+version = "0.1.150"
 description = "Desktop shell for the ProductCrew orchestrator"
 authors = ["ProductCrew"]
 edition = "2021"
