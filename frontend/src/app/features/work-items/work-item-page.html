@@ -1,0 +1,1184 @@
+<app-shell>
+  <main class="board-page">
+    <header class="board-header">
+      <div class="board-heading">
+        <div class="board-context-row">
+          <span class="eyebrow">{{ boardMode() === 'workspace' ? 'WORKSPACE ORCHESTRATION' : 'PROJECT ORCHESTRATION' }}</span>
+          <div class="board-mode-switch" role="tablist" aria-label="Work board scope">
+            <button type="button" role="tab" [class.active]="boardMode() === 'project'" [attr.aria-selected]="boardMode() === 'project'" (click)="switchBoardMode('project')"><span class="material-symbols-rounded">folder_open</span>Project</button>
+            <button type="button" role="tab" [class.active]="boardMode() === 'workspace'" [attr.aria-selected]="boardMode() === 'workspace'" (click)="switchBoardMode('workspace')"><span class="material-symbols-rounded">workspaces</span>Workspace</button>
+          </div>
+        </div>
+        <div class="title-row">
+          <h1>Agent Work Board</h1>
+          @if (boardMode() === 'project' && selectedProject()) {
+            <button class="git-delivery-launcher" type="button" (click)="gitDeliveryOpen.set(true)" aria-label="Open Git delivery" data-tooltip="Review Git status, commit completed tickets, and push safely">
+              <span class="material-symbols-rounded">account_tree</span>
+              @if (projectGitStatus()?.status === 'ok') { <b>{{ projectGitStatus()?.branch || 'Git delivery' }}</b><i [class.dirty]="gitDirtyCount() > 0">{{ gitDirtyCount() }}</i> }
+              @else { <b>Git delivery</b> }
+            </button>
+          }
+        </div>
+      </div>
+
+      <div class="board-actions" (mouseover)="showCardTooltip($event)" (mouseout)="hideCardTooltipOnPointerOut($event)" (focusin)="showCardTooltip($event)" (focusout)="hideCardTooltip()">
+        @if (board()) {
+          <div class="board-queue-control board-action-card" [attr.data-status]="queueControlStatus()" [attr.aria-label]="queueControlTooltip()" [attr.data-tooltip]="queueControlTooltip()">
+            <span class="material-symbols-rounded">{{ queueControlIcon() }}</span>
+            <div>
+              <small>Queue control</small>
+              <strong>{{ queueControlStatusLabel() }}</strong>
+            </div>
+            @if (queueControlStatus() === 'paused') {
+              <button type="button" class="board-icon-action" (click)="continueQueue()" [disabled]="saving()" aria-label="Continue queue" data-tooltip="Resume dispatching queued agent tasks">
+                <span class="material-symbols-rounded">play_arrow</span>
+              </button>
+            } @else if (queueControlStatus() === 'stopping') {
+              <button type="button" class="board-icon-action" disabled aria-label="Queue stopping" data-tooltip="ProductCrew will pause this queue after the active task completes">
+                <span class="material-symbols-rounded">hourglass_top</span>
+              </button>
+            } @else {
+              <button type="button" class="board-icon-action" (click)="safeStopQueue()" [disabled]="saving()" aria-label="Safe stop queue" data-tooltip="Pause this project queue after the current task finishes">
+                <span class="material-symbols-rounded">pause</span>
+              </button>
+            }
+          </div>
+        }
+        <div class="board-build-control board-action-card" [class.warning]="!selectedBuildAction()" [class.running]="buildRunning()" [attr.aria-label]="buildControlTooltip()" [attr.data-tooltip]="buildControlTooltip()">
+          <div>
+            <span class="material-symbols-rounded">{{ selectedBuildAction() ? 'fact_check' : 'warning' }}</span>
+            <span>
+              <small>Build verify</small>
+              <strong>{{ buildControlLabel() }}</strong>
+            </span>
+          </div>
+          @if (selectedBuildAction()) {
+          <button type="button" class="board-icon-action" (click)="runProjectBuild()" [disabled]="buildRunning() || buildProfileLoading()" [attr.aria-label]="buildButtonTitle()" [attr.data-tooltip]="buildButtonTitle()">
+            <span class="material-symbols-rounded" [class.spin]="buildRunning()">{{ buildRunning() ? 'progress_activity' : 'play_arrow' }}</span>
+          </button>
+          } @else {
+            <a class="board-icon-action" href="/settings#build-verification-heading" aria-label="Configure build verification" data-tooltip="Configure a build action in Settings first"><span class="material-symbols-rounded">settings</span></a>
+          }
+        </div>
+        @if (selectedProject()) {
+          <div class="board-deploy-control board-action-card" [attr.data-state]="deployControlState()" [attr.aria-label]="deployControlTooltip()" [attr.data-tooltip]="deployControlTooltip()">
+            <div>
+              <span class="material-symbols-rounded" [class.spin]="deployControlState() === 'running'">
+                {{ deployControlState() === 'running' ? 'progress_activity' : deployControlState() === 'passed' ? 'check_circle' : deployControlState() === 'failed' ? 'error' : 'rocket_launch' }}
+              </span>
+              <span>
+                <small>Production deploy</small>
+                <strong>{{ deployControlLabel() }}</strong>
+              </span>
+            </div>
+            @if (deployControlState() === 'running') {
+              <button type="button" class="board-icon-action" (click)="openDeployLogViewer()" aria-label="View live deploy log output" data-tooltip="View live deploy log output">
+                <span class="material-symbols-rounded">terminal</span>
+              </button>
+            } @else if (deployControlState() === 'passed' || deployControlState() === 'failed') {
+              <button type="button" class="board-icon-action" (click)="openDeployConfirm()" [attr.aria-label]="deployButtonTitle()" [attr.data-tooltip]="deployButtonTitle()">
+                <span class="material-symbols-rounded">rocket_launch</span>
+              </button>
+              <button type="button" class="board-icon-action secondary" (click)="openDeployLogViewer()" [attr.aria-label]="deployControlState() === 'failed' ? 'Inspect deploy output' : 'View deploy log'" [attr.data-tooltip]="deployControlState() === 'failed' ? 'Inspect deploy output' : 'View deploy log'"><span class="material-symbols-rounded">terminal</span></button>
+            } @else {
+              @if (selectedDeployAction()) {
+                <button type="button" class="board-icon-action" (click)="openDeployConfirm()" [disabled]="deployProfileLoading()" [attr.aria-label]="deployButtonTitle()" [attr.data-tooltip]="deployButtonTitle()">
+                  <span class="material-symbols-rounded">rocket_launch</span>
+                </button>
+              } @else {
+                <a class="board-icon-action" href="/settings#deploy-action-heading" aria-label="Configure production deploy" data-tooltip="Configure a deploy action in Settings first"><span class="material-symbols-rounded">settings</span></a>
+              }
+            }
+          </div>
+        }
+        <button class="new-request-button board-action-card" type="button" (click)="openNewRequest()" [disabled]="!selectedProject()" [attr.aria-label]="requestDraft() ? 'Continue request draft' : 'Create new request'" [attr.data-tooltip]="requestDraft() ? 'Continue the saved request draft' : 'Create a new feature, bug, or task request'">
+          <span class="material-symbols-rounded">{{ requestDraft() ? 'edit_note' : 'add' }}</span>{{ requestDraft() ? 'Continue draft' : 'New request' }}
+        </button>
+      </div>
+    </header>
+
+    @if (boardMode() === 'workspace') {
+      <section class="workspace-command-bar" [class.empty]="!selectedWorkspace()">
+        @if (selectedWorkspace(); as workspace) {
+          <div class="workspace-identity">
+            <span class="workspace-icon material-symbols-rounded">workspaces</span>
+            <div>
+              <small>Active workspace</small>
+              <label>
+                <select [value]="workspace.id" (change)="selectWorkspace($any($event.target).value)" aria-label="Select workspace">
+                  @for (option of workspaces(); track option.id) { <option [value]="option.id">{{ option.name }}</option> }
+                </select>
+                <span class="material-symbols-rounded">expand_more</span>
+              </label>
+            </div>
+          </div>
+          <div class="workspace-repositories">
+            <small>{{ workspace.folders.length }} repositories</small>
+            <div>
+              @for (folder of workspace.folders; track folder.projectId; let index = $index) {
+                <span [class.primary]="folder.primary"><i class="material-symbols-rounded">{{ folder.primary ? 'home_work' : 'folder' }}</i>{{ folder.name }}@if (folder.primary) {<b>Primary</b>}</span>
+              }
+            </div>
+          </div>
+          <div class="workspace-health">
+            <span><i></i>Healthy</span>
+            <small>{{ workspaceWritableCount() }} writable@if (workspaceReadOnlyCount()) { · {{ workspaceReadOnlyCount() }} read-only }</small>
+          </div>
+          <div class="workspace-queue-policy"><span class="material-symbols-rounded">format_list_numbered</span><div><small>Execution</small><strong>Serial queue</strong></div></div>
+          <button class="workspace-manage-button" type="button" (click)="openWorkspaceManager()"><span class="material-symbols-rounded">tune</span>Manage workspace</button>
+        } @else {
+          <div class="workspace-empty-copy"><span class="material-symbols-rounded">workspaces</span><div><strong>No workspace configured</strong><p>Combine at least two imported projects into one controlled agent scope.</p></div></div>
+          <button class="workspace-create-button" type="button" (click)="openNewWorkspace()"><span class="material-symbols-rounded">add</span>Create workspace</button>
+        }
+      </section>
+    }
+
+    @if (errorMessage(); as error) {
+      <div class="board-notice error" role="alert">
+        <span class="material-symbols-rounded">error</span>
+        <strong>{{ error }}</strong>
+        <button type="button" aria-label="Dismiss error" (click)="errorMessage.set(null)"><span class="material-symbols-rounded">close</span></button>
+      </div>
+    }
+    @if (successMessage(); as success) {
+      <div class="board-notice success" role="status">
+        <span class="material-symbols-rounded">check_circle</span>
+        <strong>{{ success }}</strong>
+        <button type="button" aria-label="Dismiss message" (click)="successMessage.set(null)"><span class="material-symbols-rounded">close</span></button>
+      </div>
+    }
+    @if (requestDraft(); as draft) {
+      <section class="planning-gate request-draft-banner" role="status">
+        <div class="planning-gate-icon"><span class="material-symbols-rounded">draft</span></div>
+        <div class="planning-gate-copy">
+          <div><span>Saved request draft</span><span>{{ draft.savedAt | date: 'HH:mm' }}</span></div>
+          <strong>{{ draftTitle(draft) }}</strong>
+          <p>{{ draftSubtitle(draft) }}</p>
+        </div>
+        <div class="planning-gate-actions">
+          <button type="button" class="planning-log-button" (click)="discardRequestDraft()"><span class="material-symbols-rounded">delete</span>Discard</button>
+          <button type="button" class="review-button" (click)="continueRequestDraft()"><span class="material-symbols-rounded">edit</span>Continue</button>
+        </div>
+      </section>
+    }
+
+    @if (loading()) {
+      <section class="board-loading" aria-live="polite">
+        <span class="material-symbols-rounded spin">progress_activity</span>
+        <div><strong>Opening project board</strong><p>Loading durable task and planning state…</p></div>
+      </section>
+    } @else if (boardMode() === 'workspace' && !selectedWorkspace()) {
+      <section class="board-empty-state workspace-empty-state">
+        <div class="empty-visual"><span class="material-symbols-rounded">workspaces</span></div>
+        <span class="eyebrow">MULTI-REPOSITORY MODE</span>
+        <h2>Create your first workspace</h2>
+        <p>Select two or more imported projects, choose the primary repository, and ProductCrew will keep execution serial and scoped.</p>
+        <button type="button" (click)="openNewWorkspace()"><span class="material-symbols-rounded">add</span>Create workspace</button>
+      </section>
+    } @else if (boardMode() === 'project' && projects().length === 0) {
+      <section class="board-empty-state">
+        <div class="empty-visual"><span class="material-symbols-rounded">create_new_folder</span></div>
+        <span class="eyebrow">NO PROJECTS YET</span>
+        <h2>Import a project to create its board</h2>
+        <p>Every project owns one independent board, planning history and set of agent queues.</p>
+        <a href="/projects"><span class="material-symbols-rounded">folder_open</span>Open Projects</a>
+      </section>
+    } @else if (!board()) {
+      <section class="board-empty-state">
+        <div class="empty-visual"><span class="material-symbols-rounded">view_kanban</span></div>
+        <span class="eyebrow">EMPTY PROJECT BOARD</span>
+        <h2>Build the first project backlog</h2>
+        <p>Add a request now, then decide when Team Lead should inspect {{ selectedProject()?.name }} and prepare a plan.</p>
+        <button type="button" (click)="openNewRequest()"><span class="material-symbols-rounded">add</span>Add first backlog item</button>
+      </section>
+    } @else {
+      @if (latestPlanningItem(); as plan) {
+        <section class="planning-gate" [class.awaiting]="plan.status === 'awaiting_approval'" [class.failed]="plan.status === 'failed'">
+          <div class="planning-gate-icon" [class.spin-ring]="plan.status === 'analyzing'">
+            <span class="material-symbols-rounded">
+              {{ plan.status === 'analyzing' ? 'manage_search' : plan.status === 'failed' ? 'error' : plan.status === 'awaiting_approval' ? 'approval' : 'history_edu' }}
+            </span>
+          </div>
+          <div class="planning-gate-copy">
+            <div><span class="planning-state">{{ planningStatusLabel(plan) }}</span><span>Revision {{ plan.revision || 1 }}</span></div>
+            <strong>{{ plan.request.title }}</strong>
+            <small class="planning-project">{{ boardMode() === 'workspace' ? 'Workspace' : 'Project' }} · {{ selectedProject()?.name }}</small>
+            <p>
+              @if (plan.status === 'analyzing') { AI is inspecting the repository and preparing structured documents and tasks. You can leave this screen safely. }
+              @else if (plan.status === 'awaiting_approval') { Review {{ plan.documents.length }} documents and {{ tasksForPlan(plan.id).length }} tasks before unlocking PM routing. }
+              @else if (plan.status === 'failed') { {{ plan.error }} }
+              @else { PM feedback is being handed back to Team Lead for a complete revision. }
+            </p>
+          </div>
+          <div class="planning-gate-actions">
+            @if (planningItems().length > 1) {
+              <label class="planning-item-switch"><span>Planning inbox</span><select [value]="plan.id" (change)="focusPlanning($event)">@for (item of planningItems(); track item.id) { <option [value]="item.id">{{ planningStatusLabel(item) }} · {{ item.request.title }}</option> }</select></label>
+            }
+            @if (plan.status === 'awaiting_approval') {
+              <button type="button" class="review-button" (click)="openPlanReview(plan)"><span class="material-symbols-rounded">rate_review</span>Review plan</button>
+            } @else if (plan.status === 'failed') {
+              <button type="button" class="review-button" (click)="retryPlan(plan)" [disabled]="saving()"><span class="material-symbols-rounded">refresh</span>Retry planning</button>
+            } @else {
+              <span class="background-note"><i></i>Running in background</span>
+            }
+            <button type="button" class="planning-log-button" [class.active]="expandedPlanningLogId() === plan.id" (click)="togglePlanningLog(plan)" [attr.aria-expanded]="expandedPlanningLogId() === plan.id">
+              <span class="material-symbols-rounded">terminal</span>{{ expandedPlanningLogId() === plan.id ? 'Hide log' : 'Live planning log' }}
+            </button>
+          </div>
+          @if (expandedPlanningLogId() === plan.id) {
+            <section class="planning-session-panel ai-session-panel">
+              @if (visiblePlanningSession(); as session) {
+                <header class="ai-session-header">
+                  <div>
+                    <span class="material-symbols-rounded">account_tree</span>
+                    <div><strong>Team Lead planning session</strong><small>{{ session.provider === 'claude-code' ? 'Claude Code' : session.provider === 'codex' ? 'Codex' : 'AI runtime' }} · Revision {{ plan.revision || 1 }}</small></div>
+                  </div>
+                  <span class="session-state" [attr.data-status]="session.status"><i></i>{{ session.status === 'running' ? 'Live' : session.status }}</span>
+                </header>
+                <div class="ai-session-log" id="planning-session-log" aria-live="polite">
+                  @for (entry of session.entries; track entry.id) {
+                    <article class="session-entry" [attr.data-level]="entry.level">
+                      <time>{{ entry.timestamp | date:'HH:mm:ss' }}</time>
+                      <span class="session-entry-icon material-symbols-rounded">{{ entry.kind === 'command' ? 'terminal' : entry.kind === 'file' ? 'draft' : entry.kind === 'tool' ? 'construction' : entry.kind === 'search' ? 'travel_explore' : entry.kind === 'reasoning' ? 'psychology' : entry.level === 'error' ? 'error' : 'radio_button_checked' }}</span>
+                      <div><strong>{{ entry.message }}</strong>@if (entry.detail) { <pre>{{ entry.detail }}</pre> }</div>
+                    </article>
+                  }
+                </div>
+              } @else {
+                <div class="session-loading"><span class="material-symbols-rounded">progress_activity</span><div><strong>Connecting to planning session…</strong><small>Waiting for Team Lead runtime events.</small></div></div>
+              }
+            </section>
+          }
+        </section>
+      }
+
+      @if (activeTask(); as task) {
+        <section class="active-task-strip">
+          <div class="agent-orbit"><span class="material-symbols-rounded">smart_toy</span><i></i></div>
+          <div><span>ACTIVE TASK · {{ roleLabel(task.role) }}</span><strong>{{ task.key }} · {{ task.title }}</strong></div>
+          <span class="active-status"><i></i>In progress</span>
+          <button type="button" (click)="openTask(task)">Open details<span class="material-symbols-rounded">arrow_forward</span></button>
+        </section>
+      }
+
+      <div class="board-summary-row">
+        <div><strong>{{ backlogItems().length }}</strong><span>Backlog</span></div>
+        <div><strong>{{ board()?.tasks?.length || 0 }}</strong><span>Total tasks</span></div>
+        <div><strong>{{ approvedPlanCount() }}</strong><span>Approved plans</span></div>
+        <div><strong>{{ tasksIn('done').length }}</strong><span>Completed</span></div>
+        <p><span class="material-symbols-rounded">lock</span>Role labels and dependencies are enforced by the server, not only by drag-and-drop.</p>
+      </div>
+
+      @if (visibleBuildRun(); as run) {
+        <section class="board-build-banner" [attr.data-status]="run.status">
+          <span class="material-symbols-rounded">{{ run.status === 'passed' ? 'check_circle' : run.status === 'failed' || run.status === 'timeout' ? 'error' : 'progress_activity' }}</span>
+          <div>
+            <strong>{{ run.actionLabel }} · {{ run.status }}</strong>
+            <p>{{ run.reason || 'Running silently in the ProductCrew service. You can leave this screen safely.' }}</p>
+          </div>
+          @if (run.status !== 'queued' && run.status !== 'running') { <code>Exit {{ run.exitCode }}</code> }
+        </section>
+      } @else if (buildProfile() && !selectedBuildAction()) {
+        <section class="board-build-banner warning">
+          <span class="material-symbols-rounded">warning</span>
+          <div><strong>Build verification is not configured</strong><p>Select a Work Board build action in Settings to verify manual Developer work and the final Developer step before sequence QA.</p></div>
+          <a href="/settings#build-verification-heading">Open Settings</a>
+        </section>
+      }
+
+      <div class="board-scroll" [attr.aria-label]="boardMode() === 'workspace' ? 'Workspace Kanban board' : 'Project Kanban board'" (mouseover)="showCardTooltip($event)" (mouseout)="hideCardTooltipOnPointerOut($event)" (focusin)="showCardTooltip($event)" (focusout)="hideCardTooltip()" (scroll)="hideCardTooltip()">
+        <div class="kanban-board">
+          @for (column of columns; track column.id) {
+            <section
+              class="kanban-column"
+              [attr.data-column]="column.id"
+              [class.drop-valid]="dropState(column.id) === 'valid'"
+              [class.drop-invalid]="dropState(column.id) === 'invalid'"
+              (dragover)="dragOver($event, column.id)"
+              (dragleave)="dragLeave($event, column.id)"
+              (drop)="drop($event, column.id)"
+            >
+              <header class="column-header">
+                <div class="column-icon"><span class="material-symbols-rounded">{{ column.icon }}</span></div>
+                <div><h2>{{ column.title }}</h2><p>{{ column.description }}</p></div>
+                <span class="column-count">{{ column.id === 'backlog' ? backlogItems().length : tasksIn(column.id).length }}</span>
+              </header>
+
+              <div class="task-list">
+                @if (column.id === 'backlog') {
+                  @for (item of backlogItems(); track item.id) {
+                    <article [attr.id]="'backlog-card-' + item.id" class="task-card backlog-card" [class.rediscovered]="(item.repeatReports ?? 0) > 0" [class.dragging]="draggedBacklogId() === item.id" draggable="true" tabindex="0" (click)="openBacklog(item)" (keydown.enter)="openBacklog(item)" (dragstart)="dragBacklogStart($event, item)" (dragend)="dragEnd()">
+                      <div class="card-topline"><span class="backlog-type" [attr.data-type]="item.type">{{ item.type }}</span><span class="task-key">{{ item.key }}</span>@if ((item.repeatReports ?? 0) > 0) { <span class="repeat-report-chip task-card-tooltip" aria-label="QA reproduced this existing bug again" data-tooltip="QA reproduced this existing bug again"><span class="material-symbols-rounded">notification_important</span>Found again · {{ item.repeatReports }}</span> } @else if (item.feasibility) { <span class="feasibility-chip">{{ item.feasibility }}%</span> }</div>
+                      <h3>{{ item.title }}</h3><p>{{ item.description }}</p>
+                      <div class="backlog-source"><span class="material-symbols-rounded">{{ backlogSourceIcon(item) }}</span>{{ backlogSourceLabel(item) }}</div>
+                      <footer>
+                        <div class="backlog-actions">
+                          <button type="button" class="plan-now-button task-icon-action backlog-plan-button" [disabled]="saving()" [attr.aria-label]="'Plan item ' + item.key" data-tooltip="Send this item to Team Lead planning" (click)="planBacklogItem(item, $event)">
+                            <span class="material-symbols-rounded">account_tree</span>
+                          </button>
+                          <button type="button" class="remove-backlog-button task-icon-action backlog-remove-button" [disabled]="saving()" [attr.aria-label]="'Remove item ' + item.key" data-tooltip="Remove this backlog item" (click)="removeBacklogItem(item, $event)">
+                            <span class="material-symbols-rounded">delete</span>
+                          </button>
+                          <span class="material-symbols-rounded task-icon-action drag-handle" aria-label="Drag to Team Lead" data-tooltip="Drag to Team Lead">drag_indicator</span>
+                        </div>
+                      </footer>
+                    </article>
+                  }
+                }
+                @for (task of tasksIn(column.id); track task.id) {
+                  <article
+                    [attr.id]="'task-card-' + task.id"
+                    class="task-card"
+                    [class.locked]="planFor(task)?.status !== 'approved'"
+                    [class.dragging]="draggedTaskId() === task.id"
+                    [class.active]="task.status === 'in_progress'"
+                    [class.verifying]="task.status === 'verifying'"
+                    [class.design-review]="task.status === 'design_review'"
+                    [class.blocked]="task.status === 'blocked' && !isWaitingOnPlanningBug(task)"
+                    [class.waiting-on-planning-bug]="isWaitingOnPlanningBug(task)"
+                    [class.highlighted]="highlightedTaskId() === task.id"
+                    [attr.draggable]="canDrag(task)"
+                    tabindex="0"
+                    (click)="openTask(task)"
+                    (keydown.enter)="openTask(task)"
+                    (dragstart)="dragStart($event, task)"
+                    (dragend)="dragEnd()"
+                  >
+                    <div class="card-topline">
+                      <span class="role-badge" [attr.data-role]="task.role">{{ roleLabel(task.role) }}</span>
+                      @if (task.sequenceOrder) { <span class="task-key task-card-tooltip" aria-label="Plan sequence order" data-tooltip="Plan sequence order">#{{ task.sequenceOrder }}</span> }
+                      <span class="task-key">{{ task.key }}</span>
+                      <span class="priority-dot task-card-tooltip" [attr.data-priority]="task.priority" [attr.aria-label]="task.priority + ' priority'" [attr.data-tooltip]="task.priority + ' priority'"></span>
+                    </div>
+                    <h3>{{ task.title }}</h3>
+                    <p>{{ task.description }}</p>
+                    @if (task.dependencyIds.length > 0) {
+                      @if (waitingDependencyKeys(task); as waitingKeys) {
+                        <div class="dependency-row" [class.waiting]="waitingKeys.length > 0">
+                          <span class="material-symbols-rounded">{{ waitingKeys.length > 0 ? 'hourglass_top' : 'account_tree' }}</span>
+                          {{ waitingKeys.length > 0 ? 'Waiting for ' + waitingKeys.join(', ') : task.dependencyIds.length + ' dependenc' + (task.dependencyIds.length === 1 ? 'y' : 'ies') }}
+                        </div>
+                      }
+                    }
+                    @if (task.blockedReason) {
+                      <div class="blocked-row" [class.waiting-on-planning-bug]="isWaitingOnPlanningBug(task)">
+                        <span class="material-symbols-rounded">{{ isWaitingOnPlanningBug(task) ? 'hourglass_top' : 'block' }}</span>
+                        <span class="blocked-text">{{ task.blockedReason }}</span>
+                      </div>
+                    }
+                    @if (task.status === 'design_review') {
+                      <div class="dependency-row design-review-row"><span class="material-symbols-rounded">rate_review</span>Waiting for PM design approval</div>
+                    }
+                    <footer>
+                      <div class="task-status-actions">
+                        <span class="task-status" [attr.data-status]="taskStatusTone(task)"><i></i>{{ taskStatusLabel(task) }}</span>
+                        @if (canVerifyManualQABug(task)) {
+                          <button
+                            type="button"
+                            class="queue-now-button restart-task-button task-icon-action manual-qa-verify-button"
+                            [disabled]="saving()"
+                            aria-label="Verify this QA bug again"
+                            data-tooltip="Queue QA to verify this bug again"
+                            (click)="verifyManualQABug($event, task)"
+                          >
+                            <span class="material-symbols-rounded">restart_alt</span>
+                          </button>
+                        }
+                      </div>
+                      <div>
+                        @if (task.status === 'in_progress' || task.status === 'verifying') {
+                          <span
+                            class="task-icon-action live-log-hint"
+                            [attr.aria-label]="task.status === 'verifying' ? 'Open build verification log' : 'Open live session log'"
+                            [attr.data-tooltip]="task.status === 'verifying' ? 'Open task to view the build verification log' : 'Open task to view the live session log'"
+                          >
+                            <i class="material-symbols-rounded">{{ task.status === 'verifying' ? 'fact_check' : 'terminal' }}</i>
+                          </span>
+                        }
+                        @if (planFor(task)?.status !== 'approved') { <span class="material-symbols-rounded task-icon-action" aria-label="Planning approval required" data-tooltip="Planning approval required">lock</span> }
+                        @if (task.documentIds.length > 0) { <span class="attachment-count task-icon-action" [attr.aria-label]="task.documentIds.length + ' linked documents'" [attr.data-tooltip]="task.documentIds.length + ' linked documents'"><i class="material-symbols-rounded">description</i>{{ task.documentIds.length }}</span> }
+                        @if (task.status !== 'in_progress' && task.status !== 'completed' && task.status !== 'design_review' && task.status !== 'blocked' && column.id !== 'done' && !task.sequenceOrder) {
+                          <button
+                            type="button"
+                            class="queue-now-button task-icon-action queue-task-button"
+                            [disabled]="saving() || !canQueue(task)"
+                            [attr.aria-label]="canQueue(task) ? (task.column === task.role ? 'Re-queue this task' : 'Queue this task for ' + roleLabel(task.role)) : queueBlockReason(task)"
+                            [attr.data-tooltip]="canQueue(task) ? (task.column === task.role ? 'Re-queue this task' : 'Queue this task for ' + roleLabel(task.role)) : queueBlockReason(task)"
+                            (click)="queueTask($event, task)"
+                          >
+                            <span class="material-symbols-rounded">play_arrow</span>
+                          </button>
+                        }
+                        @if (canDrag(task)) { <span class="material-symbols-rounded task-icon-action drag-handle" aria-label="Drag task" data-tooltip="Drag task">drag_indicator</span> }
+                      </div>
+                    </footer>
+                  </article>
+                } @empty {
+                  @if (column.id !== 'backlog') {
+                  <div class="column-empty">
+                    <span class="material-symbols-rounded">{{ column.id === 'planning' ? 'inbox' : 'move_to_inbox' }}</span>
+                    <strong>{{ column.id === 'planning' ? 'No planned tasks' : 'Queue is clear' }}</strong>
+                    <p>{{ column.id === 'planning' ? 'Approved tasks will wait here.' : 'Drag a matching task here when ready.' }}</p>
+                  </div>
+                  } @else if (backlogItems().length === 0) {
+                    <div class="column-empty"><span class="material-symbols-rounded">inventory_2</span><strong>Backlog is clear</strong><p>Add a request or triage an AI insight.</p></div>
+                  }
+                }
+                @if (dropColumn() === column.id && (draggedTaskId() || draggedBacklogId())) {
+                  <div class="drop-message">
+                    <span class="material-symbols-rounded">{{ dropState(column.id) === 'valid' ? 'move_down' : 'block' }}</span>
+                    {{ dropMessage(column.id) }}
+                  </div>
+                }
+              </div>
+            </section>
+          }
+        </div>
+      </div>
+    }
+  </main>
+
+  @if (selectedBacklog(); as item) {
+    <div class="drawer-backdrop" (click)="closeBacklog()">
+      <aside class="task-drawer backlog-drawer" aria-label="Backlog item details" (click)="$event.stopPropagation()">
+        <header class="drawer-header backlog-drawer-header">
+          <div class="backlog-drawer-meta"><span class="backlog-type" [attr.data-type]="item.type">{{ item.type }}</span><span class="task-key">{{ item.key }}</span></div>
+          <div class="backlog-header-actions">
+            <div class="backlog-action-menu" [class.open]="backlogActionMenuOpen()">
+              <button type="button" class="backlog-action-primary" [disabled]="saving()" (click)="planBacklogItem(item, $event)">
+                <span class="material-symbols-rounded">account_tree</span>{{ saving() ? 'Starting…' : 'Send to Team Lead' }}
+              </button>
+              <button type="button" class="backlog-action-toggle" [disabled]="saving()" aria-label="Open backlog actions" aria-haspopup="menu" [attr.aria-expanded]="backlogActionMenuOpen()" (click)="toggleBacklogActionMenu($event)">
+                <span class="material-symbols-rounded">expand_more</span>
+              </button>
+              @if (backlogActionMenuOpen()) {
+                <div class="backlog-action-menu-panel" role="menu" aria-label="Backlog actions">
+                  <button type="button" class="backlog-action-menu-item danger" role="menuitem" [disabled]="saving()" (click)="removeBacklogItem(item, $event)">
+                    <span class="material-symbols-rounded">delete</span>
+                    <span><strong>Remove</strong><small>Delete this backlog item from the board.</small></span>
+                  </button>
+                </div>
+              }
+            </div>
+            <button type="button" class="drawer-close-button" aria-label="Close backlog details" (click)="closeBacklog()"><span class="material-symbols-rounded">close</span></button>
+          </div>
+        </header>
+        <div class="drawer-scroll" (click)="closeBacklogActionMenu()">
+          <div class="drawer-title backlog-drawer-title">
+            <div class="backlog-detail-source"><span class="material-symbols-rounded">{{ backlogSourceIcon(item) }}</span>{{ backlogSourceLabel(item) }}</div>
+            <h2>{{ item.title }}</h2>
+            <p>{{ item.description }}</p>
+          </div>
+
+          <section class="drawer-section task-properties">
+            <h3>Backlog properties</h3>
+            <dl>
+              <div><dt>Type</dt><dd class="capitalize">{{ item.type }}</dd></div>
+              <div><dt>Source</dt><dd>{{ backlogSourceLabel(item) }}</dd></div>
+              <div><dt>Delivery</dt><dd class="capitalize">{{ item.deliveryTarget }}</dd></div>
+              <div><dt>UI/UX</dt><dd>{{ item.requiresUI ? 'Required' : 'Not required' }}</dd></div>
+              @if (item.severity) { <div><dt>Severity</dt><dd><span class="severity-chip" [attr.data-severity]="item.severity">{{ item.severity }}</span></dd></div> }
+              @if (item.feasibility) { <div><dt>Feasibility</dt><dd><strong class="backlog-feasibility">{{ item.feasibility }}%</strong></dd></div> }
+              <div><dt>Created</dt><dd>{{ item.createdAt | date:'medium' }}</dd></div>
+            </dl>
+          </section>
+
+          @if (item.attachments.length > 0) {
+            <section class="drawer-section backlog-attachments">
+              <h3>Request attachments <span>{{ item.attachments.length }}</span></h3>
+              <div>
+                @for (attachment of item.attachments; track attachment.id) {
+                  <article>
+                    <a class="backlog-attachment-preview" [href]="requestAttachmentUrl(item, attachment)" target="_blank" rel="noopener" [attr.aria-label]="'Open ' + attachment.originalName">
+                      @if (isImageAttachment(attachment.mediaType)) { <img [src]="requestAttachmentUrl(item, attachment)" [alt]="attachment.originalName" loading="lazy"> }
+                      @else { <span class="material-symbols-rounded">{{ requestAttachmentIcon(attachment.mediaType) }}</span> }
+                    </a>
+                    <div><strong>{{ attachment.originalName }}</strong><small>{{ requestAttachmentSize(attachment.size) }}</small></div>
+                    <a class="icon-button" [href]="requestAttachmentUrl(item, attachment, true)" [attr.download]="attachment.originalName" [attr.aria-label]="'Download ' + attachment.originalName" title="Download attachment"><span class="material-symbols-rounded">download</span></a>
+                  </article>
+                }
+              </div>
+              <small class="artifact-location"><span class="material-symbols-rounded">folder_open</span>{{ item.artifactPath }}</small>
+            </section>
+          }
+
+          <section class="drawer-section">
+            <h3>Definition of Done <span>{{ item.acceptanceCriteria.length }}</span></h3>
+            <ul class="check-list">
+              @for (criterion of item.acceptanceCriteria; track criterion) {
+                <li><span class="material-symbols-rounded">check_box_outline_blank</span>{{ criterion }}</li>
+              } @empty {
+                <li class="backlog-empty-criteria"><span class="material-symbols-rounded">info</span>Team Lead will define acceptance criteria during planning.</li>
+              }
+            </ul>
+          </section>
+
+          @if (item.sourceReference) {
+            <section class="drawer-section backlog-reference">
+              <h3>Source reference</h3>
+              <code>{{ item.sourceReference }}</code>
+            </section>
+          }
+        </div>
+      </aside>
+    </div>
+  }
+
+  @if (selectedTask(); as task) {
+    <div class="drawer-backdrop" (click)="closeTask()">
+      <aside class="task-drawer" aria-label="Task details" (click)="$event.stopPropagation()">
+        <header class="drawer-header task-drawer-header">
+          <div class="task-drawer-meta"><span class="role-badge" [attr.data-role]="task.role">{{ roleLabel(task.role) }}</span><span class="task-key">{{ task.key }}</span></div>
+          <div class="task-header-actions">
+            @if (task.blockedReason) {
+              <div class="drawer-task-action-group" aria-label="Blocked task actions">
+                <button type="button" class="queue-now-button restart-task-button" [disabled]="saving()" (click)="restartTask($event, task)"><span class="material-symbols-rounded">restart_alt</span>Restart task</button>
+                <button type="button" class="queue-now-button ignore-task-button" [disabled]="saving()" (click)="ignoreTask($event, task)"><span class="material-symbols-rounded">visibility_off</span>Ignore</button>
+              </div>
+            }
+            @if (canApproveDesign(task)) {
+              <div class="drawer-task-action-group design-review-actions" aria-label="Design review actions">
+                <button type="button" class="queue-now-button approve-design-button" [disabled]="saving() || designFeedbackMode()" (click)="approveDesignTask($event, task)"><span class="material-symbols-rounded">check_circle</span>Approve design</button>
+                <button type="button" class="queue-now-button feedback-design-button" [disabled]="saving()" (click)="openDesignFeedback($event, task)"><span class="material-symbols-rounded">rate_review</span>Send feedback</button>
+              </div>
+            }
+            <button type="button" class="drawer-close-button" aria-label="Close task details" (click)="closeTask()"><span class="material-symbols-rounded">close</span></button>
+          </div>
+        </header>
+        <div class="drawer-scroll">
+          <div class="drawer-title">
+            <span class="task-status" [attr.data-status]="taskStatusTone(task)"><i></i>{{ taskStatusLabel(task) }}</span>
+            <h2>{{ task.title }}</h2>
+            <p>{{ task.description }}</p>
+          </div>
+
+		  @if (task.status === 'in_progress' || task.status === 'verifying' || visibleTaskSession()) {
+			<section class="drawer-section ai-session-panel">
+			  @if (visibleTaskSession(); as session) {
+				<header class="ai-session-header">
+				  <div>
+					<span class="material-symbols-rounded">terminal</span>
+					<div><strong>Live AI session</strong><small>{{ session.provider }} · {{ roleLabel(task.role) }}</small></div>
+				  </div>
+				  <span class="session-state" [attr.data-status]="session.status"><i></i>{{ session.status === 'running' ? 'Live' : session.status }}</span>
+				</header>
+				<div class="ai-session-log" id="task-session-log" aria-live="polite">
+				  @for (entry of session.entries; track entry.id) {
+					<article class="session-entry" [attr.data-level]="entry.level">
+					  <time>{{ entry.timestamp | date:'HH:mm:ss' }}</time>
+					  <span class="session-entry-icon material-symbols-rounded">{{ entry.kind === 'command' ? 'terminal' : entry.kind === 'file' ? 'draft' : entry.kind === 'tool' ? 'construction' : entry.kind === 'search' ? 'travel_explore' : entry.level === 'error' ? 'error' : 'radio_button_checked' }}</span>
+					  <div><strong>{{ entry.message }}</strong>@if (entry.detail) { <pre>{{ entry.detail }}</pre> }</div>
+					</article>
+				  }
+				</div>
+			  } @else {
+				<div class="session-loading"><span class="material-symbols-rounded">progress_activity</span><div><strong>Connecting to AI session…</strong><small>The task keeps running in the ProductCrew service.</small></div></div>
+			  }
+			</section>
+		  }
+
+          @if (task.buildVerification; as build) {
+            <section class="drawer-section task-build-stage" [attr.data-status]="build.status">
+              <header><span class="material-symbols-rounded">{{ build.status === 'passed' ? 'check_circle' : build.status === 'failed' || build.status === 'timeout' ? 'error' : 'fact_check' }}</span><div><small>POST-IMPLEMENTATION GATE</small><strong>{{ build.actionLabel }}</strong></div><span class="task-status" [attr.data-status]="task.status"><i></i>{{ build.status }}</span></header>
+              <code>{{ build.command }}</code>
+              <p>{{ build.reason || 'ProductCrew is running this command silently in the background.' }}</p>
+              <footer><span>{{ build.durationMs ? (build.durationMs / 1000).toFixed(1) + 's' : 'Running' }}</span>@if (build.completedAt) { <span>Exit {{ build.exitCode }}</span> }</footer>
+            </section>
+          }
+
+          <section class="drawer-section task-git-evidence">
+            <header>
+              <span class="material-symbols-rounded">{{ taskGitMode() === 'link' ? 'link' : taskGitMode() === 'create-confirm' ? 'terminal' : 'account_tree' }}</span>
+              <div>
+                <small>GIT EVIDENCE</small>
+                <strong>{{ task.gitReference?.branch || task.gitReference?.commitSha || 'No branch or commit linked' }}</strong>
+              </div>
+            </header>
+
+            @if (taskGitError(); as gitEvidenceError) {
+              <p class="git-evidence-error">{{ gitEvidenceError }}</p>
+            }
+
+            @if (taskGitMode() === 'view') {
+              @if (task.gitReference; as reference) {
+                <div class="git-evidence-linked">
+                  <div class="branch-line"><span class="material-symbols-rounded">account_tree</span>{{ reference.branch || 'No branch linked' }}</div>
+                  @if (reference.commitSha) {
+                    <code class="commit-line">{{ reference.commitSha }}</code>
+                  }
+                  <div class="linked-meta">Linked by {{ reference.linkedBy || 'a user' }} · {{ reference.linkedAt | date:'medium' }}</div>
+                  <footer>
+                    <button type="button" class="link-action" [disabled]="taskGitSaving()" (click)="openTaskGitLink(task)">Change</button>
+                    <button type="button" class="link-action danger" [disabled]="taskGitSaving()" (click)="unlinkTaskGitReference(task)">Unlink</button>
+                  </footer>
+                </div>
+              } @else {
+                <div class="git-evidence-card">
+                  <p>Link the branch or commit this task's changes live on, or create a new branch using ProductCrew's naming convention.</p>
+                  <div class="git-evidence-actions">
+                    <button type="button" class="secondary-button git-evidence-action" (click)="openTaskGitLink(task)"><span class="material-symbols-rounded">link</span>Link branch or commit</button>
+                    <button type="button" class="primary-button git-evidence-action" [disabled]="taskGitSaving() || projectGitStatus()?.status !== 'ok'" [title]="projectGitStatus()?.status !== 'ok' ? 'Git status is unavailable for this project.' : ''" (click)="openTaskGitBranchConfirm(task)"><span class="material-symbols-rounded">add</span>Create branch</button>
+                  </div>
+                </div>
+              }
+            } @else if (taskGitMode() === 'link') {
+              <div class="git-link-form">
+                <div class="segmented-toggle">
+                  <button type="button" [class.active]="taskGitLinkKind() === 'branch'" (click)="setTaskGitLinkKind('branch')">Branch</button>
+                  <button type="button" [class.active]="taskGitLinkKind() === 'commit'" (click)="setTaskGitLinkKind('commit')">Commit SHA</button>
+                </div>
+                <label class="modal-field">
+                  <span>{{ taskGitLinkKind() === 'branch' ? 'Branch name' : 'Commit SHA' }}</span>
+                  <input type="text" [value]="taskGitLinkValue()" (input)="taskGitLinkValue.set($any($event.target).value)" />
+                </label>
+                @if (projectGitStatus()?.branch) {
+                  <button type="button" class="link-action" (click)="useCurrentBranchForGitLink()">Use current repo branch ({{ projectGitStatus()?.branch }})</button>
+                }
+                <footer>
+                  <button type="button" class="secondary-button" [disabled]="taskGitSaving()" (click)="cancelTaskGitLink()">Cancel</button>
+                  <button type="button" class="primary-button" [disabled]="taskGitSaving() || !taskGitLinkValue().trim()" (click)="submitTaskGitLink(task)">Link evidence</button>
+                </footer>
+              </div>
+            } @else {
+              <div class="git-branch-confirm">
+                <div class="git-branch-confirm-name">
+                  <span class="material-symbols-rounded">terminal</span>
+                  <div><small>PROPOSED BRANCH NAME</small><code>{{ taskGitProposedBranch() }}</code></div>
+                </div>
+                @if (taskGitBranchConflict(); as conflict) {
+                  <p class="git-evidence-error">A branch named <code>{{ conflict }}</code> already exists. Cancel and choose a different task, or link the existing branch instead.</p>
+                } @else {
+                  <p>ProductCrew will run <code>git branch -- {{ taskGitProposedBranch() }}</code> from the current HEAD. This never overwrites an existing branch and does not touch uncommitted changes.</p>
+                }
+                <footer>
+                  <button type="button" class="secondary-button" [disabled]="taskGitSaving()" (click)="cancelTaskGitBranchConfirm()">Cancel</button>
+                  <button type="button" class="primary-button" [disabled]="taskGitSaving() || !!taskGitBranchConflict()" (click)="confirmCreateTaskGitBranch(task)"><span class="material-symbols-rounded">check</span>Confirm &amp; create branch</button>
+                </footer>
+              </div>
+            }
+          </section>
+
+          @if (task.blockedReason) {
+            <section class="drawer-section execution-alert" [class.waiting-on-planning-bug]="isWaitingOnPlanningBug(task)">
+              <span class="material-symbols-rounded">{{ isWaitingOnPlanningBug(task) ? 'hourglass_top' : 'error' }}</span>
+              <div><strong>{{ isWaitingOnPlanningBug(task) ? 'QA waiting on planned bug' : roleLabel(task.role) + ' needs attention' }}</strong><p>{{ task.blockedReason }}</p></div>
+            </section>
+          }
+
+          @if (task.execution; as execution) {
+            <section class="drawer-section delivery-report">
+              <div class="delivery-heading"><span class="material-symbols-rounded">task_alt</span><div><strong>{{ roleLabel(task.role) }} delivery report</strong><small>{{ execution.completedAt | date:'medium' }}{{ execution.verdict ? ' · ' + execution.verdict : '' }}</small></div></div>
+              <p>{{ execution.summary }}</p>
+              @if (execution.artifacts?.length) {
+                <div class="design-preview-heading"><div><span class="material-symbols-rounded">image</span><strong>Design previews</strong></div><small>{{ execution.artifacts?.length }} PNG mockup{{ execution.artifacts?.length === 1 ? '' : 's' }}</small></div>
+                <div class="design-preview-grid">
+                  @for (artifact of execution.artifacts; track artifact.id) {
+                    <button type="button" (click)="openArtifact($event, artifact)" [attr.aria-label]="'Open ' + artifact.title + ' design preview'">
+                      <img [src]="artifactUrl(task, artifact)" [alt]="artifact.title" loading="lazy">
+                      <span><strong>{{ artifact.title }}</strong><small>{{ artifact.width }} × {{ artifact.height }} · PNG</small></span>
+                      <i class="material-symbols-rounded">zoom_in</i>
+                    </button>
+                  }
+                </div>
+              }
+              @if (execution.changedFiles.length > 0) {
+                <h4>Changed files</h4>
+                <ul class="changed-file-list">
+                  @for (file of execution.changedFiles; track file) {
+                    <li>
+                      <span class="material-symbols-rounded file-type-icon">description</span>
+                      <code>{{ file }}</code>
+                      <span class="changed-file-actions">
+                        <button
+                          type="button"
+                          class="icon-button output-file-action"
+                          [disabled]="!desktop.isDesktop || openingChangedFile() !== null || downloadingChangedFile() !== null"
+                          [attr.aria-label]="'Download ' + file"
+                          [title]="desktop.isDesktop ? 'Download to the Downloads folder' : 'Available in the ProductCrew desktop app'"
+                          (click)="downloadChangedFile($event, file)"
+                        >
+                          <span class="material-symbols-rounded" [class.spin]="downloadingChangedFile() === file">
+                            {{ downloadingChangedFile() === file ? 'progress_activity' : 'download' }}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          class="icon-button output-file-action"
+                          [disabled]="!desktop.isDesktop || openingChangedFile() !== null || downloadingChangedFile() !== null"
+                          [attr.aria-label]="'Open ' + file"
+                          [title]="desktop.isDesktop ? 'Open with the default Windows app' : 'Available in the ProductCrew desktop app'"
+                          (click)="openChangedFile($event, file)"
+                        >
+                          <span class="material-symbols-rounded" [class.spin]="openingChangedFile() === file">
+                            {{ openingChangedFile() === file ? 'progress_activity' : 'open_in_new' }}
+                          </span>
+                        </button>
+                      </span>
+                    </li>
+                  }
+                </ul>
+              }
+              <h4>Verification</h4>
+              <ul>@for (check of execution.verification; track check) { <li>{{ check }}</li> }</ul>
+              @if (execution.remainingRisks.length > 0) {
+                <h4>Remaining risks</h4>
+                <ul>@for (risk of execution.remainingRisks; track risk) { <li>{{ risk }}</li> }</ul>
+              }
+              @if (execution.findings?.length) {
+                <h4>QA findings</h4>
+                <div class="qa-findings">
+                  @for (finding of execution.findings; track finding.title) {
+                    <details>
+                      <summary>
+                        <span class="severity-chip" [attr.data-severity]="finding.severity">{{ finding.severity }}</span>
+                        <strong [title]="qaFindingTicketLabel(finding)">{{ qaFindingTicketLabel(finding) }}</strong>
+                        @if (linkedFindingBacklog(finding)) {
+                          <button type="button" class="qa-finding-ticket-action" [disabled]="saving()" title="Open linked bug ticket" (click)="openQAFindingTicket($event, finding)">
+                            <span class="material-symbols-rounded">open_in_new</span>Open ticket
+                          </button>
+                        }
+                        <span class="material-symbols-rounded">expand_more</span>
+                      </summary>
+                      <div>
+                        @if (finding.linkedBacklogKey) {
+                          <b>QA finding</b><p>{{ finding.title }}</p>
+                        }
+                        <p>{{ finding.description }}</p>
+                        <b>Evidence</b><p>{{ finding.evidence }}</p>
+                        <b>Expected / Actual</b><p>{{ finding.expected }} / {{ finding.actual }}</p>
+                        @if (qaFindingFollowUpActionLabel(finding); as actionLabel) {
+                          <button type="button" class="qa-finding-follow-up-action" [disabled]="saving()" (click)="handleQAFindingFollowUpAction($event, finding)">
+                            <span class="material-symbols-rounded">{{ qaFindingFollowUpActionIcon(finding) }}</span>{{ actionLabel }}
+                          </button>
+                        }
+                      </div>
+                    </details>
+                  }
+                </div>
+              }
+            </section>
+          }
+
+          @if (canApproveDesign(task)) {
+            <section class="drawer-section design-approval-gate" [attr.data-mode]="designFeedbackMode() ? 'compose' : 'review'">
+              <div class="design-review-gate-header">
+                <span class="material-symbols-rounded">rate_review</span>
+                <div><strong>PM design approval required</strong><p>Review the latest handoff before unlocking dependent work or sending the same Designer task back for revision.</p></div>
+              </div>
+              @if (designFeedbackMode()) {
+                <div id="design-feedback-composer" class="design-feedback-composer">
+                  <label class="design-feedback-field" for="design-feedback-textarea">
+                    <span><strong>What should change?</strong><small>Required · saved in revision history</small></span>
+                    <textarea id="design-feedback-textarea" rows="5" [maxLength]="reviewFeedbackMaxLength()" placeholder="Be specific about what the Designer should revise while keeping the current artifact sources in place." [disabled]="saving()" [value]="designFeedbackText()" (input)="setDesignFeedback($event)"></textarea>
+                  </label>
+                  <div class="design-feedback-meta"><small>Minimum {{ reviewFeedbackMinLength() }} trimmed characters</small><small>{{ designFeedbackText().length }} / {{ reviewFeedbackMaxLength() }}</small></div>
+                  @if (designFeedbackError(); as feedbackError) {
+                    <p class="design-feedback-error" role="alert">{{ feedbackError }}</p>
+                  }
+                  <div class="design-feedback-actions">
+                    <button type="button" class="secondary" [disabled]="saving()" (click)="cancelDesignFeedback($event)"><span class="material-symbols-rounded">arrow_back</span>Back</button>
+                    <button type="button" class="feedback-confirm" [disabled]="saving() || designFeedbackText().trim().length < reviewFeedbackMinLength()" (click)="submitDesignFeedback($event, task)"><span class="material-symbols-rounded" [class.spin]="saving()">{{ saving() ? 'progress_activity' : 'undo' }}</span>{{ saving() ? 'Requeueing…' : 'Requeue for revision' }}</button>
+                  </div>
+                  @if (saving()) {
+                    <small class="design-feedback-pending">Requeueing the same Designer task with your revision notes…</small>
+                  }
+                </div>
+              }
+            </section>
+          }
+
+          @if (hasDesignerRevisionContext(task)) {
+            <section class="drawer-section design-revision-context">
+              <div class="review-section-heading">
+                <div><h3>Revision context</h3><p>Latest feedback first so the next Designer pass can revise the current mockup in place.</p></div>
+                <span>{{ task.execution ? currentDesignerRevision(task) : designerRevisionHistory(task).length }}</span>
+              </div>
+              @if (task.execution; as execution) {
+                <article class="revision-card current">
+                  <div class="revision-card-header">
+                    <span class="revision-pill">Revision {{ currentDesignerRevision(task) }}</span>
+                    <small>{{ execution.completedAt | date:'medium' }}</small>
+                  </div>
+                  <strong>Designer delivery report</strong>
+                  <p class="revision-summary">{{ execution.summary }}</p>
+                  <div class="revision-meta"><small>{{ execution.artifacts?.length || 0 }} preview{{ (execution.artifacts?.length || 0) === 1 ? '' : 's' }}</small><small>{{ execution.changedFiles.length }} changed file{{ execution.changedFiles.length === 1 ? '' : 's' }}</small><small>{{ execution.verification.length }} verification check{{ execution.verification.length === 1 ? '' : 's' }}</small></div>
+                </article>
+              }
+              @if (designerRevisionHistory(task).length > 0) {
+                <div class="revision-context-list">
+                  @for (revision of designerRevisionHistory(task); track revision.requestedAt + '-' + revision.revision) {
+                    <article class="revision-card">
+                      <div class="revision-card-header">
+                        <span class="revision-pill">Feedback after Revision {{ revision.revision }}</span>
+                        <small>{{ revision.requestedAt | date:'medium' }}</small>
+                      </div>
+                      <strong>{{ revision.reviewer || 'PM' }}</strong>
+                      @if (revision.feedback) {
+                        <p class="revision-feedback-note">{{ revision.feedback }}</p>
+                      }
+                      <p class="revision-summary">{{ revision.execution.summary }}</p>
+                    </article>
+                  }
+                </div>
+              } @else {
+                <p class="revision-empty">No prior PM feedback on this task.</p>
+              }
+            </section>
+          }
+
+          <section class="drawer-section task-properties">
+            <h3>Task properties</h3>
+            <dl>
+              <div><dt>Agent</dt><dd><span class="role-badge" [attr.data-role]="task.role">{{ roleLabel(task.role) }}</span></dd></div>
+              <div><dt>Queue</dt><dd>{{ columnLabel(task.column) }}</dd></div>
+              <div><dt>Priority</dt><dd class="capitalize"><span class="priority-dot" [attr.data-priority]="task.priority"></span>{{ task.priority }}</dd></div>
+              <div><dt>Plan</dt><dd>Revision {{ selectedTaskPlan()?.revision }}</dd></div>
+            </dl>
+          </section>
+
+          <section class="drawer-section">
+            <h3>Definition of Done <span>{{ task.acceptanceCriteria.length }}</span></h3>
+            <ul class="check-list">
+              @for (criterion of task.acceptanceCriteria; track criterion) {
+                <li><span class="material-symbols-rounded">check_box_outline_blank</span>{{ criterion }}</li>
+              }
+            </ul>
+          </section>
+
+          @if (selectedTaskDependencies().length > 0) {
+            <section class="drawer-section">
+              <h3>Dependencies <span>{{ selectedTaskDependencies().length }}</span></h3>
+              <div class="dependency-list">
+                @for (dependency of selectedTaskDependencies(); track dependency.id) {
+                  <button type="button" (click)="openTask(dependency)"><span>{{ dependency.key }}</span><strong>{{ dependency.title }}</strong><i class="task-status" [attr.data-status]="dependency.status">{{ statusLabel(dependency.status) }}</i></button>
+                }
+              </div>
+            </section>
+          }
+
+          @if (selectedTaskDocuments().length > 0) {
+            <section class="drawer-section">
+              <h3>Agent input documents <span>{{ selectedTaskDocuments().length }}</span></h3>
+              <div class="document-list compact">
+                @for (document of selectedTaskDocuments(); track document.id) {
+                  <details>
+                    <summary><span class="material-symbols-rounded">description</span><div><strong>{{ document.title }}</strong><small>{{ documentKindLabel(document) }} · v{{ document.version }}</small></div><span class="material-symbols-rounded">expand_more</span></summary>
+                    <div class="document-content">{{ document.content }}</div>
+                  </details>
+                }
+              </div>
+            </section>
+          }
+
+          <section class="drawer-section execution-note">
+            <span class="material-symbols-rounded">info</span>
+            <p>PM controls queue assignment by dragging the card. Only the {{ roleLabel(task.role) }} agent can update execution status or complete this task.</p>
+          </section>
+        </div>
+      </aside>
+    </div>
+  }
+
+  @if (selectedArtifact(); as artifact) {
+    @if (selectedTask(); as task) {
+      <div class="artifact-lightbox" role="dialog" aria-modal="true" aria-label="Design preview" (click)="selectedArtifact.set(null)">
+        <section (click)="$event.stopPropagation()">
+          <header><div><span class="material-symbols-rounded">image</span><div><strong>{{ artifact.title }}</strong><small>{{ task.key }} · {{ artifact.width }} × {{ artifact.height }}</small></div></div><button type="button" aria-label="Close design preview" (click)="selectedArtifact.set(null)"><span class="material-symbols-rounded">close</span></button></header>
+          <div class="artifact-canvas"><img [src]="artifactUrl(task, artifact)" [alt]="artifact.title"></div>
+        </section>
+      </div>
+    }
+  }
+
+  @if (requestModalOpen()) {
+    <div class="modal-backdrop">
+      <section class="request-modal" role="dialog" aria-modal="true" aria-labelledby="new-request-heading" (click)="$event.stopPropagation()">
+        <header class="modal-header">
+          <div><span class="eyebrow">SMART INTAKE</span><h2 id="new-request-heading">{{ requestStep() === 'describe' ? 'Describe the outcome' : 'Shape a planning-ready request' }}</h2><p>{{ requestStep() === 'describe' ? 'Start with the intent. AI will ask only the questions that matter for this request.' : 'Review the AI-generated controls and confirm the decisions Team Lead needs.' }}</p></div>
+          <button type="button" [attr.aria-label]="requestHasDraftableContent() ? 'Save draft and close request' : 'Close request'" (click)="closeRequestModal()"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <div class="intake-stepper" aria-label="Request progress">
+          <div class="active"><span>{{ requestStep() === 'clarify' ? '✓' : '1' }}</span><div><strong>Describe</strong><small>Outcome and context</small></div></div>
+          <i [class.complete]="requestStep() === 'clarify'"></i>
+          <div [class.active]="requestStep() === 'clarify'"><span>2</span><div><strong>Clarify</strong><small>AI-shaped decisions</small></div></div>
+        </div>
+        <form [formGroup]="requestForm" (ngSubmit)="requestStep() === 'describe' ? prepareSmartIntake() : submitRequest()">
+          <div class="modal-scroll">
+            <div class="selected-project-card"><span class="material-symbols-rounded">{{ boardMode() === 'workspace' ? 'workspaces' : 'folder_open' }}</span><div><small>Planning for {{ boardMode() }}</small><strong>{{ selectedProject()?.name }}</strong><p>{{ boardMode() === 'workspace' ? (selectedWorkspace()?.folders?.length + ' repositories · primary ' + selectedProject()?.path) : selectedProject()?.path }}</p></div></div>
+
+            @if (requestStep() === 'describe') {
+              <section class="intake-intro"><span class="material-symbols-rounded">auto_awesome</span><div><strong>No generic questionnaire</strong><p>ProductCrew reads your request, chooses the right controls, and keeps the original description as the source of truth.</p></div><small>Powered by {{ desktop.isDesktop ? 'local AI' : 'your configured provider' }}</small></section>
+              <section class="request-type-picker intake-option-grid" aria-label="Request type">
+                @for (option of requestTypeOptions; track option.value) {
+                  <label class="intake-option request-type-option">
+                    <input type="radio" name="request-type" [value]="option.value" [checked]="requestType() === option.value" (change)="setRequestType(option.value)">
+                    <span><i class="material-symbols-rounded">{{ option.icon }}</i><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
+                  </label>
+                }
+              </section>
+              <label class="modal-field"><span>Readable request name <small>Required</small></span><input type="text" formControlName="title" maxlength="120" placeholder="Example: Saved search filters" autofocus><small>Use the outcome a teammate would recognize on the board.</small></label>
+              <label class="modal-field"><span>What should change? <small>Required</small></span><textarea rows="8" formControlName="description" maxlength="6000" placeholder="Describe the current problem, desired outcome, known constraints, and anything that must not change." (paste)="capturePastedAttachments($event)"></textarea><div><small>Write naturally. Smart Intake turns missing decisions into precise options.</small><small>{{ requestForm.controls.description.value.length }} / 6000</small></div></label>
+              <section class="request-attachment-section" aria-labelledby="request-attachments-heading">
+                <header><div><span class="material-symbols-rounded">attach_file</span><div><strong id="request-attachments-heading">Reference files</strong><small>Optional · paste an image, browse, or drop files here</small></div></div><span>{{ requestAttachments().length }} / 12</span></header>
+                <label class="request-attachment-dropzone" [class.dragging]="requestAttachmentDragging()" (dragenter)="dragRequestAttachments($event)" (dragover)="dragRequestAttachments($event)" (dragleave)="dragRequestAttachments($event)" (drop)="dropRequestAttachments($event)">
+                  <input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.txt,.md,.json" (change)="selectRequestAttachments($event)">
+                  <span class="material-symbols-rounded">add_photo_alternate</span>
+                  <div><strong>Add screenshots or supporting files</strong><small>PNG, JPG, WEBP, GIF, PDF, TXT, MD or JSON · 10 MB each</small></div>
+                  <b>Browse files</b>
+                </label>
+                @if (requestAttachments().length > 0) {
+                  <div class="request-attachment-list">
+                    @for (attachment of requestAttachments(); track attachment.id) {
+                      <article>
+                        <div class="request-attachment-thumb">
+                          @if (attachment.previewUrl) { <img [src]="attachment.previewUrl" [alt]="attachment.file.name"> }
+                          @else { <span class="material-symbols-rounded">{{ requestAttachmentIcon(attachment.file.type) }}</span> }
+                        </div>
+                        <div><strong>{{ attachment.file.name }}</strong><small>{{ requestAttachmentSize(attachment.file.size) }} · saved with request history</small></div>
+                        <button type="button" [attr.aria-label]="'Remove ' + attachment.file.name" (click)="removeRequestAttachment(attachment.id)"><span class="material-symbols-rounded">close</span></button>
+                      </article>
+                    }
+                  </div>
+                }
+                <p><span class="material-symbols-rounded">folder_copy</span>Stored locally under <code>.productcrew/requests/&lt;request-id&gt;</code> in the {{ boardMode() === 'workspace' ? 'primary repository' : 'project' }}.</p>
+              </section>
+              <div class="intake-privacy"><span class="material-symbols-rounded">shield_lock</span><p><strong>Local-first analysis</strong>Your configured CLI receives this request in the selected project context. No form code is generated or executed.</p></div>
+            } @else if (intakeQuestionnaire(); as questionnaire) {
+              <section class="intake-ai-summary">
+                <div class="intake-ai-mark"><span class="material-symbols-rounded">psychology</span></div>
+                <div><span class="eyebrow">AI CLARIFICATION PLAN</span><h3>{{ questionnaire.heading }}</h3><p>{{ questionnaire.summary }}</p></div>
+                <span class="intake-source"><i></i>{{ questionnaire.source === 'fallback' ? 'Safe fallback' : questionnaire.source }}</span>
+              </section>
+              @if (requestAttachments().length > 0) {
+                <div class="intake-attachment-summary"><span class="material-symbols-rounded">attach_file</span><div><strong>{{ requestAttachments().length }} reference file{{ requestAttachments().length === 1 ? '' : 's' }} attached</strong><small>Files will be persisted with the request and available to downstream agents.</small></div></div>
+              }
+              @if (questionnaire.warning) {
+                <div class="intake-warning"><span class="material-symbols-rounded">info</span><p>{{ questionnaire.warning }}</p></div>
+              }
+              <div class="dynamic-question-grid">
+                @for (question of questionnaire.questions; track question.id; let questionIndex = $index) {
+                  <section class="dynamic-question" [class.intake-span-full]="question.layout.span === 12" [class.info-question]="question.type === 'info'">
+                    <header><span class="question-number">{{ question.type === 'info' ? 'i' : questionIndex + 1 }}</span><div><div><h4>{{ question.label }}</h4>@if (question.required) {<small>Required</small>}</div><p>{{ question.helpText }}</p></div><span class="material-symbols-rounded question-type-icon">{{ intakeControlIcon(question.type) }}</span></header>
+                    @switch (question.type) {
+                      @case ('toggle') {
+                        <div class="intake-option-grid compact">
+                          @for (option of question.options; track option.value) {
+                            <label class="intake-option"><input type="radio" [name]="question.id" [value]="option.value" [checked]="answerSelected(question.id, option.value)" (change)="setSingleAnswer(question.id, option.value)"><span><i class="material-symbols-rounded">{{ option.value === 'true' ? 'check_circle' : 'remove_circle_outline' }}</i><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span></label>
+                          }
+                        </div>
+                      }
+                      @case ('radio') {
+                        <div class="intake-option-stack">
+                          @for (option of question.options; track option.value) {
+                            <label class="intake-radio"><input type="radio" [name]="question.id" [value]="option.value" [checked]="answerSelected(question.id, option.value)" (change)="setSingleAnswer(question.id, option.value)"><span><i></i><div><strong>{{ option.label }}</strong><small>{{ option.description }}</small></div></span></label>
+                          }
+                        </div>
+                      }
+                      @case ('dropdown') {
+                        <label class="intake-select"><select [value]="answerValue(question.id)" (change)="setSingleAnswer(question.id, $any($event.target).value)"><option value="" disabled>Select the best fit</option>@for (option of question.options; track option.value) {<option [value]="option.value">{{ option.label }} — {{ option.description }}</option>}</select><span class="material-symbols-rounded">expand_more</span></label>
+                      }
+                      @case ('checkbox') {
+                        <div class="intake-option-grid">
+                          @for (option of question.options; track option.value) {
+                            <label class="intake-option"><input type="checkbox" [checked]="answerSelected(question.id, option.value)" (change)="toggleIntakeAnswer(question.id, option.value, $any($event.target).checked)"><span><i class="material-symbols-rounded">check_box</i><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span></label>
+                          }
+                        </div>
+                      }
+                      @case ('scale') {
+                        <div class="intake-scale">@for (option of question.options; track option.value) {<label><input type="radio" [name]="question.id" [value]="option.value" [checked]="answerSelected(question.id, option.value)" (change)="setSingleAnswer(question.id, option.value)"><span><strong>{{ option.value }}</strong><small>{{ option.label }}</small></span></label>}</div>
+                      }
+                      @case ('short_text') {
+                        <textarea class="intake-short-text" rows="3" maxlength="500" [value]="answerValue(question.id)" (input)="setTextAnswer(question.id, $event)" placeholder="Add concise context for Team Lead"></textarea>
+                      }
+                      @case ('info') {
+                        <div class="intake-info-copy"><span class="material-symbols-rounded">tips_and_updates</span><p>{{ question.helpText }}</p></div>
+                      }
+                    }
+                  </section>
+                }
+              </div>
+            }
+          </div>
+          <footer class="modal-footer intake-footer">
+            @if (requestStep() === 'describe') {
+              <div><strong>Step 1 of 2</strong><small>Usually 2–6 follow-up decisions</small></div><button type="button" class="secondary" (click)="closeRequestModal()"><span class="material-symbols-rounded">{{ requestHasDraftableContent() ? 'draft' : 'close' }}</span>{{ requestHasDraftableContent() ? 'Save draft' : 'Cancel' }}</button>@if (requestHasDraftableContent()) {<button type="button" class="secondary danger" (click)="discardRequestDraft()"><span class="material-symbols-rounded">delete</span>Discard</button>}<button type="submit" class="primary smart-intake-button" [disabled]="generatingIntake() || requestForm.invalid"><span class="material-symbols-rounded" [class.spin]="generatingIntake()">{{ generatingIntake() ? 'progress_activity' : 'auto_awesome' }}</span>{{ generatingIntake() ? 'Shaping questions…' : 'Generate smart questions' }}</button>
+            } @else {
+              <div><strong>{{ answeredQuestionCount() }} / {{ intakeQuestionnaire()?.questions?.length }} decisions captured</strong><small>Answers are saved with the backlog item for Team Lead.</small></div><button type="button" class="secondary" (click)="backToRequestDescription()"><span class="material-symbols-rounded">arrow_back</span>Edit request</button><button type="button" class="secondary" (click)="closeRequestModal()"><span class="material-symbols-rounded">draft</span>Save draft</button><button type="button" class="secondary danger" (click)="discardRequestDraft()"><span class="material-symbols-rounded">delete</span>Discard</button><button type="submit" class="primary" [disabled]="saving() || !intakeReady()"><span class="material-symbols-rounded" [class.spin]="saving()">{{ saving() ? 'progress_activity' : 'playlist_add' }}</span>{{ saving() ? 'Adding to backlog…' : 'Add to backlog' }}</button>
+            }
+          </footer>
+        </form>
+      </section>
+    </div>
+  }
+
+  @if (workspaceManagerOpen()) {
+    <div class="modal-backdrop workspace-modal-backdrop" (click)="closeWorkspaceManager()">
+      <section class="workspace-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-heading" (click)="$event.stopPropagation()">
+        <header class="modal-header">
+          <div><span class="eyebrow">WORKSPACE CONTROL</span><h2 id="workspace-modal-heading">{{ editingWorkspaceId() ? 'Manage multi-repo workspace' : 'Create a multi-repo workspace' }}</h2><p>Group imported projects into one explicit execution boundary. The first selected project is the primary repository.</p></div>
+          <button type="button" aria-label="Close workspace manager" (click)="closeWorkspaceManager()"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <form [formGroup]="workspaceForm" (ngSubmit)="createWorkspace()">
+          <div class="workspace-modal-body">
+            <label class="modal-field"><span>Workspace name <small>Required</small></span><input type="text" formControlName="name" maxlength="80" placeholder="Example: ProductCrew platform"></label>
+            <section class="workspace-project-picker">
+              <header><div><strong>Repository access</strong><p>Select at least two projects. Agents can write only to repositories included here.</p></div><span>{{ workspaceProjectIds().length }} selected</span></header>
+              <div class="workspace-project-list">
+                @for (project of projects(); track project.id) {
+                  <div class="workspace-project-row" [class.selected]="workspaceProjectSelected(project.id)">
+                    <button type="button" class="workspace-project-select" (click)="toggleWorkspaceProject(project.id)">
+                      <span class="workspace-project-check material-symbols-rounded">{{ workspaceProjectSelected(project.id) ? 'check' : 'add' }}</span>
+                      <span class="workspace-project-copy"><strong>{{ project.name }}</strong><small>{{ project.path }}</small></span>
+                    </button>
+                    @if (workspaceProjectSelected(project.id)) {
+                      <button type="button" class="workspace-project-access" [disabled]="workspaceProjectIds()[0] === project.id" [title]="workspaceProjectIds()[0] === project.id ? 'The primary repository must remain writable' : 'Toggle repository write access'" (click)="toggleWorkspaceProjectAccess($event, project.id)">{{ workspaceProjectIds()[0] === project.id ? 'Primary · read & write' : workspaceProjectAccess()[project.id] === 'read-only' ? 'Read only' : 'Read & write' }}</button>
+                    }
+                  </div>
+                } @empty {
+                  <div class="workspace-project-empty"><span class="material-symbols-rounded">folder_off</span><p>Import projects before creating a workspace.</p><a href="/projects">Open Projects</a></div>
+                }
+              </div>
+            </section>
+            <div class="workspace-safety-note"><span class="material-symbols-rounded">shield_lock</span><div><strong>Explicit, local access</strong><p>The workspace definition is stored locally as a <code>.workspace</code> file. ProductCrew sends only these repository roots to the selected AI CLI.</p></div></div>
+          </div>
+          <footer class="modal-footer workspace-modal-footer">
+            <div><strong>Serial execution</strong><small>One active agent task at a time; queued work is retained.</small></div>
+            <button type="button" class="secondary" (click)="closeWorkspaceManager()">Cancel</button>
+            @if (editingWorkspaceId()) { <button type="button" class="secondary new-workspace-inline" (click)="openNewWorkspace()"><span class="material-symbols-rounded">add</span>New workspace</button> }
+            <button type="submit" class="primary" [disabled]="!canCreateWorkspace()"><span class="material-symbols-rounded" [class.spin]="saving()">{{ saving() ? 'progress_activity' : editingWorkspaceId() ? 'save' : 'add' }}</span>{{ saving() ? 'Saving…' : editingWorkspaceId() ? 'Save workspace' : 'Create workspace' }}</button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  }
+
+  @if (cardTooltip(); as tooltip) {
+    <div class="card-tooltip-overlay" [class.below]="tooltip.placement === 'below'" [style.left.px]="tooltip.left" [style.top.px]="tooltip.top" role="tooltip">{{ tooltip.text }}</div>
+  }
+  @if (reviewPlan(); as plan) {
+    <div class="modal-backdrop">
+      <section class="plan-review-modal" role="dialog" aria-modal="true" aria-labelledby="plan-review-heading" (click)="$event.stopPropagation()">
+        <header class="modal-header">
+          <div><span class="eyebrow">PLANNING CHECKPOINT</span><h2 id="plan-review-heading">Review Team Lead plan</h2><p>{{ plan.request.title }} · Revision {{ plan.revision }}</p></div>
+          <button type="button" aria-label="Close review" (click)="closePlanReview()"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <div class="plan-review-scroll">
+          @if (plan.status === 'failed') {
+            <div class="review-error"><span class="material-symbols-rounded">error</span><div><strong>Planning failed</strong><p>{{ plan.error }}</p></div></div>
+          } @else {
+            <section class="plan-summary"><span class="material-symbols-rounded">auto_awesome</span><div><small>Team Lead summary</small><p>{{ plan.summary }}</p></div></section>
+
+            <div class="review-section-heading"><div><h3>Agent documents</h3><p>Persistent source material handed to downstream tasks.</p></div><span>{{ plan.documents.length }}</span></div>
+            <div class="document-list">
+              @for (document of plan.documents; track document.id) {
+                <details>
+                  <summary><span class="material-symbols-rounded">description</span><div><strong>{{ document.title }}</strong><small>{{ documentKindLabel(document) }} · For {{ document.audience.join(', ') }}</small></div><span class="material-symbols-rounded">expand_more</span></summary>
+                  <div class="document-content">{{ document.content }}</div>
+                </details>
+              }
+            </div>
+
+            <div class="review-section-heading"><div><h3>Role-safe task breakdown</h3><p>Titles and target queues are validated by the backend.</p></div><span>{{ tasksForPlan(plan.id).length }}</span></div>
+            <div class="plan-task-list">
+              @for (task of tasksForPlan(plan.id); track task.id; let order = $index) {
+                <article><span class="role-badge" [attr.data-role]="task.role">{{ order + 1 }} · {{ roleLabel(task.role) }}</span><div><strong>{{ task.key }} · {{ task.title }}</strong><p>{{ task.description }}</p></div><span class="capitalize priority-label" [attr.data-priority]="task.priority">{{ task.priority }}</span></article>
+              }
+            </div>
+          }
+
+          @if (denyMode()) {
+            <label class="deny-feedback"><span><strong>What must Team Lead change?</strong><small>Required · saved in planning history</small></span><textarea rows="4" maxlength="2000" placeholder="Be specific about missing scope, incorrect assumptions or required technical changes." [value]="denyReason()" (input)="setDenyReason($event)"></textarea><small>{{ denyReason().length }} / 2000</small></label>
+          }
+        </div>
+        <footer class="modal-footer plan-review-actions">
+          @if (plan.status === 'failed') {
+            <button type="button" class="secondary" (click)="closePlanReview()">Close</button><button type="button" class="primary" (click)="retryPlan(plan)" [disabled]="saving()"><span class="material-symbols-rounded">refresh</span>Retry planning</button>
+          } @else if (denyMode()) {
+            <button type="button" class="secondary" (click)="denyMode.set(false)">Back</button><button type="button" class="deny-confirm" (click)="denyPlan(plan)" [disabled]="saving() || denyReason().trim().length < 5"><span class="material-symbols-rounded">undo</span>Send feedback to Team Lead</button>
+          } @else {
+            <button type="button" class="deny-button" (click)="denyMode.set(true)"><span class="material-symbols-rounded">rate_review</span>Deny with reason</button><button type="button" class="approve-button" (click)="approvePlan(plan)" [disabled]="saving()"><span class="material-symbols-rounded">check_circle</span>Approve & unlock tasks</button>@if (canRunSequence(plan)) {<button type="button" class="sequence-button" title="Approve this plan, unlock its tasks, and run them in order" (click)="approveAndRunSequence(plan)" [disabled]="saving()"><span class="material-symbols-rounded">rocket_launch</span>Start Autopilot</button>}
+          }
+        </footer>
+      </section>
+    </div>
+  }
+
+  @if (deployConfirmOpen()) {
+    <div class="modal-backdrop" (click)="cancelDeployConfirm()">
+      <section class="deploy-confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="deploy-confirm-heading" (click)="$event.stopPropagation()">
+        <header class="modal-header">
+          <div>
+            <span class="caution-badge"><span class="material-symbols-rounded">warning</span>PRODUCTION IMPACT</span>
+            <h2 id="deploy-confirm-heading">Deploy to production</h2>
+            <p>Executing this action will run the configured deploy command directly on your local system against live production targets.</p>
+          </div>
+          <button type="button" aria-label="Cancel deploy" (click)="cancelDeployConfirm()"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <div class="modal-scroll">
+          <div class="selected-project-card">
+            <span class="material-symbols-rounded">folder_open</span>
+            <div>
+              <small>Target project</small>
+              <strong>{{ selectedProject()?.name }}</strong>
+              <p>{{ selectedProject()?.path }}</p>
+            </div>
+          </div>
+          <div class="deploy-command-box">
+            <header><span>SHELL COMMAND (CONFIRM EXACT SYNTAX)</span></header>
+            <code>$ {{ selectedDeployAction()?.executable }} {{ selectedDeployAction()?.arguments?.join(' ') }}</code>
+          </div>
+          <div class="deploy-safety-callout">
+            <span class="material-symbols-rounded">warning</span>
+            <p>Ensure all automated tests have passed and local uncommitted changes are reconciled before proceeding. Deployment cannot be undone once started.</p>
+          </div>
+          <label class="deploy-confirm-checkbox">
+            <input type="checkbox" [checked]="deployAcknowledged()" (change)="deployAcknowledged.set(!deployAcknowledged())">
+            <span>I understand this command executes directly against production infrastructure.</span>
+          </label>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="secondary" autofocus (click)="cancelDeployConfirm()">Cancel</button>
+          <button type="button" class="primary danger-deploy-button" [disabled]="!deployAcknowledged()" (click)="confirmDeploy()">
+            <span class="material-symbols-rounded">rocket_launch</span>Confirm &amp; Deploy to Production
+          </button>
+        </footer>
+      </section>
+    </div>
+  }
+
+  @if (deployLogViewerOpen() && activeDeployRun(); as run) {
+    <div class="modal-backdrop" (click)="closeDeployLogViewer()">
+      <section class="deploy-log-viewer" role="dialog" aria-modal="true" aria-labelledby="deploy-log-heading" (click)="$event.stopPropagation()">
+        <header class="deploy-log-header">
+          <div>
+            <span class="material-symbols-rounded">terminal</span>
+            <strong id="deploy-log-heading">Deploy terminal output</strong>
+            <span class="status-pill" [attr.data-status]="run.status">
+              @switch (run.status) {
+                @case ('running') { <i class="spin material-symbols-rounded">progress_activity</i>Running · {{ deployElapsedSeconds() }}s }
+                @case ('queued') { <i class="spin material-symbols-rounded">progress_activity</i>Queued }
+                @case ('passed') { <i class="material-symbols-rounded">check_circle</i>Completed · Exit {{ run.exitCode }} · {{ deployDurationSeconds(run) }}s }
+                @default { <i class="material-symbols-rounded">error</i>Failed · Exit {{ run.exitCode }} · {{ deployDurationSeconds(run) }}s }
+              }
+            </span>
+          </div>
+          <button type="button" aria-label="Close log viewer" (click)="closeDeployLogViewer()"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <div class="terminal-stream">
+          @for (line of deployLogs(); track $index) {
+            <p [attr.data-level]="line.level">{{ line.message }}</p>
+          }
+          @if (deployLogs().length === 0) {
+            <p class="terminal-empty">Waiting for deploy output…</p>
+          }
+        </div>
+        @if (run.logPath) {
+          <footer class="terminal-footer"><span class="material-symbols-rounded">folder</span>{{ run.logPath }}</footer>
+        }
+      </section>
+    </div>
+  }
+  @if (gitDeliveryOpen() && selectedProject(); as project) {
+    <app-git-delivery-modal [projectId]="project.id" [projectName]="project.name" (closed)="gitDeliveryOpen.set(false)" (delivered)="refreshGitStatus()" />
+  }
+</app-shell>

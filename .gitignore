@@ -2,3 +2,13 @@
 .env
 .idea/
 .vscode/
+.dev-*.log
+.productcrew/
+.codex-tmp/
+.tmp/
+scratch/
+dist/
+src-tauri/target/
+src-tauri/binaries/*.exe
+internal/web/dist/*
+!internal/web/dist/.gitkeep

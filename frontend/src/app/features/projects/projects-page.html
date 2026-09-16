@@ -1,0 +1,400 @@
+<app-shell>
+  <div class="feature-layout projects-layout">
+    <main class="feature-main">
+      <header class="feature-header">
+        <div>
+          <div class="eyebrow">LOCAL WORKSPACES</div>
+          <h1>Projects</h1>
+          <p>Connect repositories once, then use them across work items and orchestration runs.</p>
+        </div>
+        <div class="project-header-actions">
+          <span class="status-pill">{{ projects().length }} connected</span>
+          <a class="primary-button compact" routerLink="/projects/new">
+            <span class="material-symbols-rounded">add</span>Create new product
+          </a>
+        </div>
+      </header>
+
+      @if (successMessage(); as success) {
+        <div class="notice success" role="status">
+          <span class="material-symbols-rounded">check_circle</span>
+          <div>
+            <strong>{{ successTitle() }}</strong
+            ><span>{{ success }}</span>
+          </div>
+        </div>
+      }
+      @if (errorMessage(); as error) {
+        <div class="notice error" role="alert">
+          <span class="material-symbols-rounded">error</span>
+          <div>
+            <strong>{{ errorTitle() }}</strong
+            ><span>{{ error }}</span>
+          </div>
+        </div>
+      }
+
+      <section class="project-summary" aria-label="Project summary">
+        <div>
+          <span class="material-symbols-rounded">folder_open</span
+          ><strong>{{ projects().length }}</strong
+          ><small>All projects</small>
+        </div>
+        <div>
+          <span class="material-symbols-rounded">cloud_download</span
+          ><strong>{{ gitProjectCount() }}</strong
+          ><small>Cloned from Git</small>
+        </div>
+        <div>
+          <span class="material-symbols-rounded">folder_copy</span
+          ><strong>{{ localProjectCount() }}</strong
+          ><small>Local folders</small>
+        </div>
+      </section>
+
+      <section class="project-library" aria-labelledby="project-library-heading">
+        <div class="library-header">
+          <div>
+            <h2 id="project-library-heading">Project library</h2>
+            <p>Projects available to the AI product team.</p>
+          </div>
+          <label class="search-field">
+            <span class="material-symbols-rounded">search</span>
+            <input
+              type="search"
+              placeholder="Search projects"
+              [value]="search()"
+              (input)="setSearch($event)"
+              data-project-search
+            />
+          </label>
+        </div>
+
+        @if (loading()) {
+          <div class="project-empty" aria-live="polite">
+            <span class="material-symbols-rounded spin">progress_activity</span
+            ><strong>Loading projects…</strong>
+          </div>
+        } @else if (filteredProjects().length === 0) {
+          <div class="project-empty">
+            <span class="empty-icon material-symbols-rounded">folder_open</span>
+            <strong>{{ search() ? 'No matching projects' : 'No projects imported yet' }}</strong>
+            <p>
+              {{
+                search()
+                  ? 'Try a different name, path or branch.'
+                  : 'Choose Git or Local folder in the import panel to connect your first project.'
+              }}
+            </p>
+          </div>
+        } @else {
+          <div class="project-list">
+            @for (project of filteredProjects(); track project.id) {
+              <article class="project-row" [class.project-row-removing]="isRemoving(project.id)">
+                <div class="project-source-icon">
+                  <span class="material-symbols-rounded">{{
+                    project.source === 'git' ? 'account_tree' : 'folder'
+                  }}</span>
+                </div>
+                <div class="project-details">
+                  <div class="project-title">
+                    <strong>{{ project.name }}</strong
+                    ><span class="source-badge">{{
+                      project.source === 'git' ? 'Git clone' : 'Local folder'
+                    }}</span>
+                  </div>
+                  <p>{{ project.path }}</p>
+                  <div class="project-meta">
+                    @if (project.branch) {
+                      <span
+                        ><i class="material-symbols-rounded">fork_right</i
+                        >{{ project.branch }}</span
+                      >
+                    }
+                    @if (project.remoteUrl) {
+                      <span
+                        ><i class="material-symbols-rounded">link</i>{{ project.remoteUrl }}</span
+                      >
+                    }
+                  </div>
+                </div>
+                <div class="project-row-actions">
+                  <button
+                    type="button"
+                    class="secondary-button compact project-remove-button"
+                    [attr.aria-label]="'Remove ' + project.name + ' from ProductCrew'"
+                    [attr.aria-busy]="isRemoving(project.id)"
+                    [attr.data-remove-project-id]="project.id"
+                    [disabled]="isRemoving(project.id)"
+                    (click)="openProjectRemoval(project)"
+                  >
+                    <span class="material-symbols-rounded" [class.spin]="isRemoving(project.id)">{{
+                      isRemoving(project.id) ? 'progress_activity' : 'delete'
+                    }}</span>
+                    {{ isRemoving(project.id) ? 'Removing...' : 'Remove from ProductCrew' }}
+                  </button>
+                </div>
+              </article>
+              @if (isConfirmingRemoval(project.id)) {
+                <section
+                  class="project-remove-confirmation"
+                  role="dialog"
+                  [attr.aria-labelledby]="removeConfirmationHeadingId(project.id)"
+                  [attr.aria-busy]="isRemoving(project.id)"
+                  (keydown.escape)="cancelProjectRemoval(project.id)"
+                >
+                  <div>
+                    <h3
+                      [id]="removeConfirmationHeadingId(project.id)"
+                      tabindex="-1"
+                      [attr.data-remove-confirmation-id]="project.id"
+                    >
+                      Remove {{ project.name }} from ProductCrew?
+                    </h3>
+                    <p>
+                      ProductCrew will forget this project and remove its local app data. The
+                      repository folder will stay on disk and no source files will be deleted.
+                    </p>
+                    <ul>
+                      <li>
+                        <span class="material-symbols-rounded">description</span>Project metadata in
+                        projects.json
+                      </li>
+                      <li>
+                        <span class="material-symbols-rounded">view_kanban</span>Project board in
+                        boards.json
+                      </li>
+                      <li>
+                        <span class="material-symbols-rounded">psychology</span>Saved AI insights in
+                        insights.json
+                      </li>
+                    </ul>
+                    <p class="project-remove-path">
+                      <strong>Repository folder:</strong> {{ project.path }}
+                    </p>
+                  </div>
+                  <div class="project-remove-actions">
+                    <button
+                      type="button"
+                      class="secondary-button compact"
+                      [disabled]="isRemoving(project.id)"
+                      (click)="cancelProjectRemoval(project.id)"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      class="danger-button"
+                      [disabled]="isRemoving(project.id)"
+                      (click)="confirmProjectRemoval(project)"
+                    >
+                      <span
+                        class="material-symbols-rounded"
+                        [class.spin]="isRemoving(project.id)"
+                        >{{ isRemoving(project.id) ? 'progress_activity' : 'delete' }}</span
+                      >
+                      {{ isRemoving(project.id) ? 'Removing...' : 'Remove from ProductCrew' }}
+                    </button>
+                  </div>
+                </section>
+              }
+            }
+          </div>
+        }
+      </section>
+    </main>
+
+    <aside class="import-panel" aria-labelledby="import-heading">
+      <div class="import-header">
+        <div>
+          <span class="eyebrow">IMPORT PROJECT</span>
+          <h2 id="import-heading">Add a workspace</h2>
+          <p>Choose where the project comes from.</p>
+        </div>
+        <span class="material-symbols-rounded">add_circle</span>
+      </div>
+
+      <div class="import-tabs" role="tablist" aria-label="Project source">
+        <button
+          type="button"
+          role="tab"
+          [attr.aria-selected]="importMode() === 'git'"
+          [class.active]="importMode() === 'git'"
+          (click)="setImportMode('git')"
+        >
+          <span class="material-symbols-rounded">cloud_download</span>GitHub repository
+        </button>
+        <button
+          type="button"
+          role="tab"
+          [attr.aria-selected]="importMode() === 'local'"
+          [class.active]="importMode() === 'local'"
+          (click)="setImportMode('local')"
+        >
+          <span class="material-symbols-rounded">folder_copy</span>Local folder
+        </button>
+      </div>
+
+      @if (importMode() === 'git') {
+        <form class="import-form" [formGroup]="gitForm" (ngSubmit)="importGit()">
+          <div class="import-intro">
+            <span class="material-symbols-rounded">account_tree</span>
+            <div>
+              <strong>Clone from GitHub</strong>
+              <p>Choose a GitHub CLI credential, then select one of its repositories.</p>
+            </div>
+          </div>
+          <label class="field">
+            <span>GitHub credential</span>
+            <select formControlName="credentialLogin" (change)="switchGitCredential($event)">
+              <option value="">
+                {{ credentialsLoading() ? 'Loading GitHub accounts…' : 'Select a GitHub account' }}
+              </option>
+              @for (credential of gitCredentials(); track credential.login) {
+                <option [value]="credential.login">
+                  {{ credential.login }}{{ credential.active ? ' · Active in gh' : '' }}
+                </option>
+              }
+            </select>
+          </label>
+          @if (credentialError(); as credentialLoadError) {
+            <div class="credential-callout">
+              <span class="material-symbols-rounded">manage_accounts</span>
+              <div>
+                <strong>GitHub CLI unavailable</strong>
+                <p>{{ credentialLoadError }}</p>
+              </div>
+              <a href="/settings">Settings</a>
+            </div>
+          }
+          <label class="field">
+            <span class="field-heading"
+              >GitHub repository
+              <button
+                type="button"
+                class="refresh-button"
+                (click)="loadGitRepositories(true)"
+                [disabled]="repositoriesLoading() || !githubReady"
+              >
+                <span class="material-symbols-rounded" [class.spin]="repositoriesLoading()"
+                  >refresh</span
+                ><span class="refresh-label">Refresh</span>
+              </button></span
+            >
+            <select formControlName="repositoryUrl" (change)="selectGitRepository($event)">
+              <option value="">
+                {{ repositoriesLoading() ? 'Loading repositories…' : 'Select a repository' }}
+              </option>
+              @for (repository of gitRepositories(); track repository.id) {
+                <option [value]="repository.cloneUrl" [disabled]="repository.archived">
+                  {{ repository.fullName }}{{ repository.private ? ' · Private' : ''
+                  }}{{ repository.archived ? ' · Archived' : '' }}
+                </option>
+              }
+            </select>
+          </label>
+          @if (repositoryError(); as repositoryLoadError) {
+            <div class="credential-callout">
+              <span class="material-symbols-rounded">sync_problem</span>
+              <div>
+                <strong>Repositories unavailable</strong>
+                <p>{{ repositoryLoadError }}</p>
+              </div>
+              <a href="/settings">Settings</a>
+            </div>
+          } @else if (selectedGitRepository(); as repository) {
+            <div class="repository-selection">
+              <span class="material-symbols-rounded">cloud_done</span>
+              <div>
+                <strong>{{ repository.fullName }}</strong>
+                <p>
+                  {{ repository.private ? 'Private repository' : 'Public repository' }} · Default
+                  branch: {{ repository.defaultBranch }}
+                </p>
+              </div>
+            </div>
+          } @else if (
+            !repositoriesLoading() && settings()?.patConfigured && gitRepositories().length === 0
+          ) {
+            <div class="local-safety">
+              <span class="material-symbols-rounded">inventory_2</span>
+              <p>No active repositories were returned for this GitHub credential.</p>
+            </div>
+          }
+          <div class="destination-preview">
+            <span class="material-symbols-rounded">drive_file_move</span>
+            <div>
+              <small>Clone destination</small><strong>{{ destinationPreview }}</strong>
+            </div>
+          </div>
+          <div class="credential-callout" [class.ready]="githubReady">
+            <span class="material-symbols-rounded">{{
+              githubReady ? 'verified_user' : 'key'
+            }}</span>
+            <div>
+              <strong>{{ githubReady ? 'GitHub connected' : 'GitHub setup required' }}</strong>
+              <p>
+                {{
+                  githubReady
+                    ? (selectedGitCredential()?.login || 'Manual PAT') +
+                      ' · ' +
+                      gitRepositories().length +
+                      ' repositories available.'
+                    : 'Sign in with gh or add a PAT in Settings.'
+                }}
+              </p>
+            </div>
+            <a href="/settings">Settings</a>
+          </div>
+          <button
+            class="primary-button"
+            type="submit"
+            [disabled]="importing() || gitForm.invalid || !selectedGitRepository()"
+          >
+            <span class="material-symbols-rounded" [class.spin]="importing()">{{
+              importing() ? 'progress_activity' : 'download'
+            }}</span>
+            {{ importing() ? 'Cloning repository…' : 'Clone & import' }}
+          </button>
+        </form>
+      } @else {
+        <form class="import-form" [formGroup]="localForm" (ngSubmit)="importLocal()">
+          <div class="import-intro">
+            <span class="material-symbols-rounded">folder_copy</span>
+            <div>
+              <strong>Add local folder</strong>
+              <p>The project stays in place. No files are copied or moved.</p>
+            </div>
+          </div>
+          <label class="field"
+            ><span>Project folder</span>
+            <div class="path-picker">
+              <input
+                type="text"
+                formControlName="path"
+                placeholder="Choose a folder on this machine"
+                readonly
+              /><button type="button" (click)="pickLocalFolder()">
+                <span class="material-symbols-rounded">folder_open</span>Browse
+              </button>
+            </div>
+          </label>
+          <div class="local-safety">
+            <span class="material-symbols-rounded">shield</span>
+            <p>Codex access remains limited by the workspace permissions selected for each run.</p>
+          </div>
+          <button
+            class="primary-button"
+            type="submit"
+            [disabled]="importing() || localForm.invalid"
+          >
+            <span class="material-symbols-rounded" [class.spin]="importing()">{{
+              importing() ? 'progress_activity' : 'add'
+            }}</span>
+            {{ importing() ? 'Adding project…' : 'Add local project' }}
+          </button>
+        </form>
+      }
+    </aside>
+  </div>
+</app-shell>

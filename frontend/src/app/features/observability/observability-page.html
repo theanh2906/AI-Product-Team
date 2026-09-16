@@ -1,0 +1,126 @@
+<app-shell>
+  <main class="observability-page">
+    <header class="observability-header">
+      <div><span class="eyebrow">RUNTIME OBSERVABILITY</span><div class="observability-title"><h1>AI Session Intelligence</h1><span class="live-pill" [class.offline]="!live()"><i></i>{{ live() ? 'Live via SSE' : 'Reconnecting' }}</span></div><p>Track every local AI run, compare provider performance, and trace delivery outcomes without exposing prompts.</p></div>
+      <div class="observability-filters"><label><span>Project</span><select [ngModel]="projectId()" (ngModelChange)="projectId.set($event); changeScope()"><option value="">All projects</option>@for (project of projects(); track project.id) { <option [value]="project.id">{{ project.name }}</option> }</select></label><label><span>Time range</span><select [ngModel]="days()" (ngModelChange)="days.set(+$event); changeScope()"><option [value]="7">Last 7 days</option><option [value]="30">Last 30 days</option><option [value]="90">Last 90 days</option></select></label><button type="button" (click)="changeScope()"><span class="material-symbols-rounded">refresh</span>Refresh</button></div>
+    </header>
+
+    @if (errorMessage(); as error) { <div class="board-notice error"><span class="material-symbols-rounded">error</span><strong>{{ error }}</strong><button type="button" (click)="errorMessage.set(null)"><span class="material-symbols-rounded">close</span></button></div> }
+    @if (loading()) { <section class="observability-loading"><span class="material-symbols-rounded spin">progress_activity</span><strong>Building project health snapshot…</strong></section> }
+    @else if (overview(); as data) {
+      @if (aiSessions(); as sessions) {
+        <section class="session-metrics" aria-label="AI session metrics">
+          <article><span class="material-symbols-rounded active">bolt</span><div><small>Active runs</small><strong>{{ sessions.metrics.activeRuns }}</strong><p>Queued and in progress</p></div></article>
+          <article><span class="material-symbols-rounded success">check_circle</span><div><small>Success rate</small><strong>{{ sessions.metrics.successRate | number:'1.0-1' }}%</strong><p>{{ sessions.metrics.completedRuns }} terminal runs</p></div></article>
+          <article><span class="material-symbols-rounded time">timer</span><div><small>Median task time</small><strong>{{ duration(sessions.metrics.medianDurationMs) }}</strong><p>Stable against long outliers</p></div></article>
+          <article><span class="material-symbols-rounded tokens">data_usage</span><div><small>Tokens tracked</small><strong>{{ sessions.metrics.trackedTokens | number }}</strong><p>{{ sessions.metrics.usageTrackedRuns }} runs · provider reported</p></div></article>
+        </section>
+
+        <section class="session-command-grid">
+          <article #sessionListCard class="session-list-card">
+            <header><div><span class="material-symbols-rounded">monitoring</span><div><h2>Session command center</h2><p>Live and recent AI execution runs</p></div></div><div class="session-filters"><select [ngModel]="sessionStatus()" (ngModelChange)="setSessionStatus($event)"><option value="all">All statuses</option><option value="active">Active</option><option value="completed">Completed</option><option value="failed">Needs attention</option></select><select [ngModel]="provider()" (ngModelChange)="setProvider($event)"><option value="all">All providers</option>@for (item of providers(); track item) { <option [value]="item">{{ item }}</option> }</select></div></header>
+            <div class="session-table">
+              <div class="session-head"><span>Task / session</span><span>Provider & model</span><span>Status</span><span>Elapsed</span><span>Tokens</span><span></span></div>
+              @for (run of pagedRuns(); track run.id) {
+                <button type="button" class="session-row" [class.expanded]="expandedRunId() === run.id" (click)="toggleRun(run)">
+                  <span class="session-identity"><i class="material-symbols-rounded">{{ roleIcon(run.agent) }}</i><span><strong>{{ run.entityKey || run.agent || 'AI run' }} · {{ run.title || run.stage || 'Background analysis' }}</strong><small>{{ run.projectName || run.projectId || 'Local project' }} · {{ run.agent || 'agent' }}</small></span></span>
+                  <span class="runtime-cell"><strong>{{ run.provider }}</strong><small>{{ run.model }}{{ run.effort ? ' · ' + run.effort : '' }}</small></span>
+                  <span class="run-status" [attr.data-status]="run.status"><i></i>{{ run.status === 'completed' ? 'Completed' : run.status === 'failed' || run.status === 'interrupted' ? 'Needs attention' : run.status === 'running' ? 'In progress' : 'Queued' }}</span>
+                  <span>{{ runDuration(run) }}</span>
+                  <span class="token-cell"><strong>{{ tokens(run) }}</strong><small>{{ run.usage.confidence === 'unavailable' ? 'Unavailable' : run.usage.confidence }}</small></span>
+                  <span class="material-symbols-rounded expand-icon">expand_more</span>
+                  @if (expandedRunId() === run.id) {
+                    <div class="run-detail">
+                      <div class="run-detail-summary"><div><small>Session trace</small><code>{{ run.correlationId }}</code></div><div><small>Resume state</small><strong>{{ run.resumed ? 'Resumed session' : 'Fresh turn' }}</strong></div><div><small>Token policy</small><strong>{{ run.usage.confidence === 'unavailable' ? 'No provider usage received' : 'Provider-reported usage' }}</strong></div></div>
+                      <div class="run-timeline">@for (event of run.events; track event.id) { <div><i [attr.data-outcome]="event.outcome"></i><time>{{ event.timestamp | date:'HH:mm:ss' }}</time><span><strong>{{ event.message }}</strong><small>{{ event.name }}</small></span></div> }</div>
+                      @if (run.error) { <div class="run-error"><span class="material-symbols-rounded">error</span>{{ run.error }}</div> }
+                    </div>
+                  }
+                </button>
+              } @empty { <div class="session-empty"><span class="material-symbols-rounded">hourglass_empty</span><strong>No sessions match this view</strong><p>New AI runs will appear here through the live event stream.</p></div> }
+            </div>
+            @if (filteredRuns().length > sessionPageSize()) {
+              <footer class="session-pagination" aria-label="Session pagination">
+                <span>Showing {{ sessionPageStart() }}-{{ sessionPageEnd() }} of {{ filteredRuns().length }}</span>
+                <div>
+                  <button type="button" (click)="previousSessionPage()" [disabled]="currentSessionPage() === 1" aria-label="Previous page"><span class="material-symbols-rounded">chevron_left</span></button>
+                  <strong>Page {{ currentSessionPage() }} / {{ totalSessionPages() }}</strong>
+                  <button type="button" (click)="nextSessionPage()" [disabled]="currentSessionPage() === totalSessionPages()" aria-label="Next page"><span class="material-symbols-rounded">chevron_right</span></button>
+                </div>
+              </footer>
+            }
+          </article>
+
+          <aside #comparisonCard class="comparison-card">
+            <header><div><h2>Provider comparison</h2><p>Model-level performance for this scope</p></div><span class="material-symbols-rounded">compare_arrows</span></header>
+            <div class="comparison-list">
+              @for (item of pagedComparisons(); track item.provider + item.model) {
+                <article>
+                  <div><span class="provider-mark">{{ item.provider.slice(0, 1).toUpperCase() }}</span><span><strong>{{ item.provider }}</strong><small>{{ item.model }}</small></span><b>{{ item.runs }} runs</b></div>
+                  <div class="comparison-score"><span><i [style.width.%]="comparisonWidth(item)"></i></span><strong>{{ item.successRate | number:'1.0-0' }}%</strong></div>
+                  <footer><span>Median {{ duration(item.medianDurationMs) }}</span><span>{{ item.usageTrackedRuns ? (item.trackedTokens | number) + ' tokens' : 'Tokens unavailable' }}</span></footer>
+                </article>
+              } @empty {
+                <div class="comparison-empty">Comparison appears after the first AI run.</div>
+              }
+            </div>
+            <footer class="comparison-pagination" aria-label="Provider comparison pagination">
+              <span>{{ comparisons().length ? 'Showing ' + comparisonPageStart() + '-' + comparisonPageEnd() + ' of ' + comparisons().length : 'Metadata only' }}</span>
+              @if (comparisons().length > comparisonPageSize()) {
+                <div>
+                  <button type="button" (click)="previousComparisonPage()" [disabled]="currentComparisonPage() === 1" aria-label="Previous provider comparison page"><span class="material-symbols-rounded">chevron_left</span></button>
+                  <strong>Page {{ currentComparisonPage() }} / {{ totalComparisonPages() }}</strong>
+                  <button type="button" (click)="nextComparisonPage()" [disabled]="currentComparisonPage() === totalComparisonPages()" aria-label="Next provider comparison page"><span class="material-symbols-rounded">chevron_right</span></button>
+                </div>
+              } @else {
+                <small>Prompts and responses are not copied.</small>
+              }
+            </footer>
+          </aside>
+        </section>
+
+        <div class="delivery-divider"><span>Delivery health</span></div>
+      }
+      <section class="metric-grid" aria-label="Delivery health metrics">
+        <article><span class="metric-icon feature material-symbols-rounded">lightbulb</span><div><small>Feature opportunities</small><strong>{{ data.metrics.totalFeatures }}</strong><p>Across saved AI analyses</p></div></article>
+        <article><span class="metric-icon bug material-symbols-rounded">bug_report</span><div><small>Verified bugs</small><strong>{{ data.metrics.totalBugs }}</strong><p>Evidence-backed findings</p></div></article>
+        <article><span class="metric-icon material-symbols-rounded">inventory_2</span><div><small>Backlog load</small><strong>{{ data.metrics.backlogItems }}</strong><p>{{ data.metrics.activePlans }} active plans</p></div></article>
+        <article><span class="metric-icon success material-symbols-rounded">psychology</span><div><small>AI success rate</small><strong>{{ data.metrics.aiJobSuccessRate | number:'1.0-1' }}%</strong><p>{{ data.metrics.averageAIJobSeconds | number:'1.0-1' }}s average runtime</p></div></article>
+        <article><span class="metric-icon approval material-symbols-rounded">approval</span><div><small>Planning approval</small><strong>{{ data.metrics.planningApprovalRate | number:'1.0-1' }}%</strong><p>{{ data.metrics.reworkCount }} rework signals</p></div></article>
+        <article><span class="metric-icon time material-symbols-rounded">timer</span><div><small>Task lead time</small><strong>{{ data.metrics.averageTaskLeadHours | number:'1.0-1' }}h</strong><p>{{ data.metrics.completedTasks }} tasks completed</p></div></article>
+      </section>
+
+      <section class="monitor-grid">
+        <article class="monitor-card trend-card">
+          <header><div><h2>Delivery flow</h2><p>Features, bugs added and tasks completed</p></div><div class="chart-legend"><span><i class="feature"></i>Features</span><span><i class="bug"></i>Bugs</span><span><i class="done"></i>Done</span></div></header>
+          <div class="trend-chart" [style.--points]="data.trend.length">
+            @for (point of data.trend; track point.date; let index = $index) { <div class="trend-column" [title]="point.date + ' · ' + point.features + ' features · ' + point.bugs + ' bugs · ' + point.done + ' done'"><div class="bar-stack"><i class="feature" [style.height.%]="trendHeight(point.features)"></i><i class="bug" [style.height.%]="trendHeight(point.bugs)"></i><i class="done" [style.height.%]="trendHeight(point.done)"></i></div>@if (index % (data.trend.length > 14 ? 5 : 2) === 0) { <small>{{ shortDate(point) }}</small> }</div> }
+          </div>
+        </article>
+
+        <article class="monitor-card reliability-card"><header><div><h2>AI reliability</h2><p>Sequential agent execution health</p></div><span class="material-symbols-rounded">shield_with_heart</span></header><div class="reliability-score"><strong>{{ data.metrics.aiJobSuccessRate | number:'1.0-0' }}%</strong><div><span>Successful jobs</span><progress max="100" [value]="data.metrics.aiJobSuccessRate"></progress></div></div><dl><div><dt>Average runtime</dt><dd>{{ data.metrics.averageAIJobSeconds | number:'1.0-1' }}s</dd></div><div><dt>Planning rework</dt><dd>{{ data.metrics.reworkCount }}</dd></div><div><dt>Execution mode</dt><dd>Sequential</dd></div></dl></article>
+
+        <article class="monitor-card distribution-card"><header><div><h2>Feature feasibility</h2><p>Decision factor: implementation fit</p></div><span class="material-symbols-rounded">radar</span></header><div class="distribution-list">@for (item of data.featureFeasibility; track item.key) { <div><span><strong>{{ item.label }}</strong><small>{{ item.value }}</small></span><progress max="100" [value]="percent(item, data.featureFeasibility)"></progress></div> }</div><footer>High ≥ 80 · Medium 60–79 · Exploratory &lt; 60</footer></article>
+        <article class="monitor-card distribution-card"><header><div><h2>Feature funnel</h2><p>Suggestion to delivery state</p></div><span class="material-symbols-rounded">filter_alt</span></header><div class="distribution-list">@for (item of data.featureStatus; track item.key) { <div><span><strong>{{ item.label }}</strong><small>{{ item.value }}</small></span><progress max="100" [value]="percent(item, data.featureStatus)"></progress></div> }</div></article>
+        <article class="monitor-card distribution-card bug-health"><header><div><h2>Bug severity</h2><p>Decision factor: user and system risk</p></div><span class="material-symbols-rounded">policy</span></header><div class="severity-grid">@for (item of data.bugSeverity; track item.key) { <div [attr.data-severity]="item.key"><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div> }</div><div class="distribution-list compact">@for (item of data.bugStatus; track item.key) { <div><span><strong>{{ item.label }}</strong><small>{{ item.value }}</small></span><progress max="100" [value]="percent(item, data.bugStatus)"></progress></div> }</div></article>
+        <article class="monitor-card distribution-card"><header><div><h2>Agent workload</h2><p>Current task ownership</p></div><span class="material-symbols-rounded">groups</span></header><div class="agent-workload">@for (item of data.agentWorkload; track item.key) { <div><span class="material-symbols-rounded">{{ item.key === 'designer' ? 'palette' : item.key === 'developer' ? 'terminal' : 'verified' }}</span><strong>{{ item.label }}</strong><b>{{ item.value }}</b></div> }</div><h3>Delivery target</h3><div class="target-row">@for (item of data.deliveryTargets; track item.key) { <span>{{ item.label }} <strong>{{ item.value }}</strong></span> }</div></article>
+      </section>
+
+      <section class="trace-card">
+        <header><div><span class="material-symbols-rounded">manage_search</span><div><h2>Trace Explorer</h2><p>Search structured lifecycle events without reading raw console output.</p></div></div><span>{{ events().length }} events</span></header>
+        <div class="trace-filters"><label><span>Correlation ID</span><input type="search" [ngModel]="correlationId()" (ngModelChange)="correlationId.set($event)" placeholder="req-…"></label><label><span>Level</span><select [ngModel]="level()" (ngModelChange)="level.set($event)"><option value="">All levels</option><option value="info">Info</option><option value="warn">Warning</option><option value="error">Error</option></select></label><label><span>Category</span><select [ngModel]="category()" (ngModelChange)="category.set($event)"><option value="">All categories</option><option value="ai">AI jobs</option><option value="http">HTTP</option><option value="backlog">Backlog</option><option value="planning">Planning</option><option value="task">Tasks</option></select></label><button type="button" class="trace-apply" (click)="applyLogFilters()"><span class="material-symbols-rounded">filter_alt</span>Apply</button><button type="button" class="trace-clear" (click)="clearTraceFilters()">Clear</button></div>
+        <div class="trace-table"><div class="trace-head"><span>Time</span><span>Level</span><span>Event</span><span>Trace</span><span>Entity</span><span>Duration</span></div>@for (event of pagedEvents(); track event.id) { <button type="button" class="trace-row" [class.expanded]="expandedEventId() === event.id" (click)="toggleEvent(event)"><time>{{ event.timestamp | date:'MMM d, HH:mm:ss' }}</time><span class="log-level" [attr.data-level]="event.level">{{ event.level }}</span><span class="event-copy"><strong>{{ event.message }}</strong><small>{{ event.name }} · {{ event.stage || event.category }} · {{ event.outcome || 'observed' }}</small></span><code (click)="$event.stopPropagation(); traceCorrelation(event)">{{ event.correlationId || 'background' }}</code><span>{{ event.entityType || '—' }} @if (event.entityId) { <small>{{ event.entityId }}</small> }</span><span>{{ event.durationMs ? (event.durationMs | number) + ' ms' : '—' }}</span>@if (expandedEventId() === event.id) { <pre>{{ event | json }}</pre> }</button> } @empty { <div class="trace-empty"><span class="material-symbols-rounded">search_off</span><strong>No events match these filters</strong><p>Clear the trace filters or generate new project activity.</p></div> }</div>
+        @if (events().length > tracePageSize) {
+          <footer class="trace-pagination session-pagination" aria-label="Trace pagination">
+            <span>Showing {{ tracePageStart() }}-{{ tracePageEnd() }} of {{ events().length }}</span>
+            <div>
+              <button type="button" (click)="previousTracePage()" [disabled]="currentTracePage() === 1" aria-label="Previous trace page"><span class="material-symbols-rounded">chevron_left</span></button>
+              <strong>Page {{ currentTracePage() }} / {{ totalTracePages() }}</strong>
+              <button type="button" (click)="nextTracePage()" [disabled]="currentTracePage() === totalTracePages()" aria-label="Next trace page"><span class="material-symbols-rounded">chevron_right</span></button>
+            </div>
+          </footer>
+        }
+      </section>
+    }
+  </main>
+</app-shell>

@@ -1,0 +1,309 @@
+<app-shell>
+  <main class="atlas-page">
+    <header class="atlas-header">
+      <div>
+        <span class="atlas-eyebrow">PROJECT INTELLIGENCE</span>
+        <h1>Project Atlas</h1>
+        <p>Study the repository once, then explore its architecture, flows, evidence, and role-specific working knowledge.</p>
+      </div>
+      <div class="atlas-header-actions">
+        @if (result()?.roleGuidance?.length) {
+          <button type="button" class="atlas-secondary" (click)="skillsOpen.set(true)">
+            <span class="material-symbols-rounded">psychology</span>
+            Agent skills
+            <b>{{ result()?.roleGuidance?.length }}</b>
+          </button>
+        }
+        <button type="button" class="atlas-primary" [disabled]="!selectedProjectId() || studying()" (click)="runStudy()">
+          <span class="material-symbols-rounded" [class.spin]="studying()">{{ studying() ? 'progress_activity' : result() ? 'refresh' : 'travel_explore' }}</span>
+          {{ studying() ? 'Studying project' : result() ? 'Study again' : 'Study project' }}
+        </button>
+      </div>
+    </header>
+
+    @if (errorMessage()) {
+      <div class="atlas-notice error" role="alert"><span class="material-symbols-rounded">error</span><div><strong>Project study needs attention</strong><p>{{ errorMessage() }}</p></div></div>
+    }
+    @if (successMessage()) {
+      <div class="atlas-notice success" role="status"><span class="material-symbols-rounded">check_circle</span><div><strong>Project Atlas updated</strong><p>{{ successMessage() }}</p></div></div>
+    }
+
+    <section class="atlas-project-strip" [attr.data-state]="job()?.status || 'empty'">
+      <span class="atlas-project-icon material-symbols-rounded">deployed_code</span>
+      <div class="atlas-project-copy">
+        <span>Active project</span>
+        <strong>{{ selectedProject()?.name || 'No project selected' }}</strong>
+        <small [attr.title]="selectedProject()?.path">{{ selectedProject()?.path || 'Import a local project to begin.' }}</small>
+      </div>
+      @if (selectedProject()) { <span class="atlas-source-badge">{{ selectedProject()?.source }}</span> }
+      <div class="atlas-project-stat">
+        <span>Knowledge status</span>
+        <strong><i></i>{{ statusLabel() }}</strong>
+      </div>
+      @if (result()) {
+        <div class="atlas-project-stat">
+          <span>Last studied</span>
+          <strong>{{ result()?.studiedAt | date:'MMM d, y · h:mm a' }}</strong>
+        </div>
+        <div class="atlas-project-stat">
+          <span>Evidence</span>
+          <strong>{{ result()?.coverage?.evidenceSources }} sources</strong>
+        </div>
+      }
+      @if (studying()) {
+        <div class="atlas-progress" aria-live="polite">
+          <span><b>{{ job()?.phase }}</b><b>{{ job()?.progress }}%</b></span>
+          <i><b [style.width.%]="job()?.progress"></b></i>
+          <small>{{ job()?.logs?.at(-1)?.message }}</small>
+        </div>
+      }
+    </section>
+
+    @if (loading()) {
+      <section class="atlas-empty loading"><span class="material-symbols-rounded spin">progress_activity</span><h2>Loading saved knowledge</h2><p>Reading this project's local Atlas cache.</p></section>
+    } @else if (!selectedProject()) {
+      <section class="atlas-empty"><span class="material-symbols-rounded">folder_off</span><h2>Select a project first</h2><p>Project Atlas is scoped to the active project in the sidebar.</p><a routerLink="/projects">Open Projects</a></section>
+    } @else if (!result()) {
+      <section class="atlas-empty hero-empty">
+        <span class="material-symbols-rounded">hub</span>
+        <span class="atlas-eyebrow">LOCAL-FIRST PROJECT STUDY</span>
+        <h2>Turn this repository into navigable knowledge</h2>
+        <p>ProductCrew will index source structure, enrich it with your selected AI provider, and persist the result inside <code>.productcrew/project-intelligence</code>.</p>
+        <div><span><b>1</b>Index structure</span><i></i><span><b>2</b>Map architecture</span><i></i><span><b>3</b>Suggest role guidance</span></div>
+        <button type="button" class="atlas-primary" [disabled]="studying()" (click)="runStudy()"><span class="material-symbols-rounded">travel_explore</span>Start project study</button>
+      </section>
+    } @else {
+      <nav class="atlas-lenses" aria-label="Project knowledge views">
+        @for (item of lenses; track item.id) {
+          <button type="button" [class.active]="lens() === item.id" (click)="setLens(item.id)">
+            <span class="material-symbols-rounded">{{ item.icon }}</span>
+            <span>{{ item.label }}</span>
+            <b>{{ lensCount(item.id) }}</b>
+          </button>
+        }
+      </nav>
+
+      <div class="atlas-workspace">
+        <section class="atlas-canvas">
+          <header>
+            <div><span class="atlas-eyebrow">{{ lens() }}</span><h2>{{ result()?.projectName }} system map</h2><p>{{ result()?.summary }}</p></div>
+            <div class="atlas-canvas-tools" aria-label="Diagram controls">
+              <span class="atlas-confidence"><i></i>{{ result()?.freshness === 'fresh' ? 'Current snapshot' : 'Source changed' }}</span>
+              <button type="button" title="Zoom out" aria-label="Zoom out diagram" (click)="zoomDiagram(-10)"><span class="material-symbols-rounded">remove</span></button>
+              <strong>{{ diagramZoom() }}%</strong>
+              <button type="button" title="Zoom in" aria-label="Zoom in diagram" (click)="zoomDiagram(10)"><span class="material-symbols-rounded">add</span></button>
+              <button type="button" title="Reset view" aria-label="Reset diagram view" (click)="resetDiagramView()"><span class="material-symbols-rounded">center_focus_strong</span><span>Fit</span></button>
+              <button type="button" title="Open fullscreen" aria-label="Open diagram fullscreen" (click)="openDiagramFullscreen()"><span class="material-symbols-rounded">open_in_full</span><span>Fullscreen</span></button>
+            </div>
+          </header>
+
+          <div class="atlas-diagram-frame" [style.--diagram-scale]="diagramScale()">
+            <div class="atlas-diagram-zoom-layer">
+              <ng-container *ngTemplateOutlet="atlasLensContent"></ng-container>
+            </div>
+          </div>
+        </section>
+
+        <aside class="atlas-inspector">
+          <header><span class="atlas-eyebrow">INSPECTOR</span><h2>Selected detail</h2></header>
+          @switch (lens()) {
+            @case ('architecture') {
+              @if (selectedComponent(); as component) {
+                <div class="inspector-title"><span class="material-symbols-rounded">{{ iconForKind(component.kind) }}</span><div><small>{{ component.kind }}</small><h3>{{ component.name }}</h3></div></div>
+                <p>{{ component.description }}</p>
+                <section><h4>Responsibilities</h4><ul>@for (item of component.responsibilities; track item) { <li><span class="material-symbols-rounded">check</span>{{ item }}</li> }</ul></section>
+                <section><h4>Entry files</h4><ul class="file-list">@for (file of component.entryFiles; track file) { <li><span class="material-symbols-rounded">description</span><code>{{ file }}</code></li> }</ul></section>
+                <section><h4>Connected to</h4><div class="tag-list">@for (related of relatedComponents(component.id); track related.id) { <button type="button" (click)="selectComponent(related)">{{ related.name }}</button> } @empty { <span>No mapped relations</span> }</div></section>
+                <div class="confidence-meter"><span><b>Confidence</b><b>{{ component.confidence }}%</b></span><i><b [style.width.%]="component.confidence"></b></i></div>
+              }
+            }
+            @case ('folders') {
+              @if (selectedFolder(); as folder) {
+                <div class="inspector-title"><span class="material-symbols-rounded">folder_open</span><div><small>{{ folder.kind }}</small><h3>{{ folderName(folder) }}</h3></div></div><p><code>{{ folderPath(folder) }}</code></p>
+                <section><h4>Directly mapped children</h4><ul class="file-list">@for (child of folderChildren(folder); track child) { <li><span class="material-symbols-rounded">subdirectory_arrow_right</span><code>{{ child }}</code></li> } @empty { <li>No child folders at the indexed depth.</li> }</ul></section>
+              }
+            }
+            @case ('data') {
+              @if (selectedEntity(); as entity) {
+                <div class="inspector-title"><span class="material-symbols-rounded">database</span><div><small>{{ entity.kind }}</small><h3>{{ entity.name }}</h3></div></div><p>{{ entity.description }}</p><section><h4>Source</h4><code>{{ entity.path }}</code></section><section><h4>Relations</h4><ul>@for (relation of entity.relations; track relation) { <li>{{ relation }}</li> } @empty { <li>No explicit relations detected.</li> }</ul></section>
+              }
+            }
+            @case ('sequences') { @if (selectedSequence(); as sequence) { <div class="inspector-title"><span class="material-symbols-rounded">conversion_path</span><div><small>sequence</small><h3>{{ sequence.name }}</h3></div></div><p>{{ sequence.description }}</p><section><h4>Coverage</h4><strong>{{ sequence.steps.length }} traced interactions</strong></section> } }
+            @case ('workflows') { @if (selectedWorkflow(); as workflow) { <div class="inspector-title"><span class="material-symbols-rounded">route</span><div><small>workflow</small><h3>{{ workflow.name }}</h3></div></div><p>{{ workflow.description }}</p><section><h4>Coverage</h4><strong>{{ workflow.steps.length }} mapped stages</strong></section> } }
+          }
+          @if (visibleEvidence().length) {
+            <section><h4>Evidence</h4><ul class="evidence-list">@for (evidence of visibleEvidence().slice(0, 5); track evidence.file + evidence.line) { <li><code>{{ evidence.file }}{{ evidence.line ? ':' + evidence.line : '' }}</code><small>{{ evidence.detail }}</small></li> }</ul></section>
+          }
+        </aside>
+      </div>
+
+      <details class="atlas-evidence">
+        <summary><span class="material-symbols-rounded">fact_check</span><div><strong>Study evidence</strong><small>{{ result()?.coverage?.filesScanned }} files indexed · {{ result()?.coverage?.foldersMapped }} folders mapped · {{ result()?.durationMs }} ms</small></div><span class="material-symbols-rounded chevron">expand_more</span></summary>
+        <div>
+          <p>{{ result()?.scopeNote }}</p>
+          <dl><div><dt>Fingerprint</dt><dd><code>{{ result()?.fingerprint?.slice(0, 16) }}</code></dd></div><div><dt>Ignored entries</dt><dd>{{ result()?.coverage?.ignoredEntries }}</dd></div><div><dt>Storage</dt><dd><code>.productcrew/project-intelligence/study.json</code></dd></div></dl>
+          @if (job()?.logs?.length) { <ol>@for (log of job()?.logs; track log.id) { <li><time>{{ log.timestamp | date:'HH:mm:ss' }}</time><b>{{ log.phase }}</b><span>{{ log.message }}</span></li> }</ol> }
+        </div>
+      </details>
+    }
+  </main>
+
+  @if (skillsOpen()) {
+    <div class="atlas-drawer-backdrop" (click)="skillsOpen.set(false)">
+      <aside class="atlas-skills-drawer" role="dialog" aria-modal="true" aria-label="Learned agent skills" (click)="$event.stopPropagation()">
+        <header><div><span class="atlas-eyebrow">PROJECT-SPECIFIC KNOWLEDGE</span><h2>Agent guidance</h2><p>Review what Atlas learned before adding it to this project's Agent Studio profile.</p></div><button type="button" aria-label="Close" (click)="skillsOpen.set(false)"><span class="material-symbols-rounded">close</span></button></header>
+        <div class="atlas-guidance-list">
+          @for (guidance of result()?.roleGuidance; track guidance.role) {
+            <article><header><span class="material-symbols-rounded">psychology</span><div><strong>{{ roleLabel(guidance.role) }}</strong><small>{{ guidance.confidence }}% confidence · {{ guidance.evidence.length }} evidence</small></div></header><p>{{ guidance.summary }}</p><pre>{{ guidance.instructions }}</pre></article>
+          }
+        </div>
+        <footer><span>{{ result()?.guidanceApplied ? 'Guidance is active in Agent Studio.' : 'Manual role instructions keep higher priority.' }}</span><a routerLink="/settings" [queryParams]="{ projectId: selectedProjectId() }">Open Agent Studio</a><button type="button" class="atlas-primary" [disabled]="applying() || result()?.guidanceApplied" (click)="applyGuidance()"><span class="material-symbols-rounded">auto_awesome</span>{{ applying() ? 'Applying' : result()?.guidanceApplied ? 'Applied' : 'Apply guidance' }}</button></footer>
+      </aside>
+    </div>
+  }
+
+  @if (diagramFullscreenOpen()) {
+    <div class="atlas-fullscreen-backdrop" (click)="closeDiagramFullscreen()">
+      <section class="atlas-fullscreen-modal" role="dialog" aria-modal="true" aria-labelledby="atlas-fullscreen-title" (click)="$event.stopPropagation()">
+        <header>
+          <div>
+            <span class="atlas-eyebrow">INTERACTIVE DIAGRAM</span>
+            <h2 id="atlas-fullscreen-title">{{ result()?.projectName }} · {{ lens() }}</h2>
+            <p>{{ result()?.summary }}</p>
+          </div>
+          <div class="atlas-canvas-tools">
+            <button type="button" title="Zoom out" aria-label="Zoom out diagram" (click)="zoomDiagram(-10)"><span class="material-symbols-rounded">remove</span></button>
+            <strong>{{ diagramZoom() }}%</strong>
+            <button type="button" title="Zoom in" aria-label="Zoom in diagram" (click)="zoomDiagram(10)"><span class="material-symbols-rounded">add</span></button>
+            <button type="button" title="Reset view" aria-label="Reset diagram view" (click)="resetDiagramView()"><span class="material-symbols-rounded">center_focus_strong</span><span>Fit</span></button>
+            <button type="button" title="Close fullscreen" aria-label="Close fullscreen diagram" (click)="closeDiagramFullscreen()"><span class="material-symbols-rounded">close</span></button>
+          </div>
+        </header>
+        <div class="atlas-fullscreen-body">
+          <div class="atlas-diagram-frame atlas-diagram-frame-fullscreen" [style.--diagram-scale]="diagramScale()">
+            <div class="atlas-diagram-zoom-layer">
+              <ng-container *ngTemplateOutlet="atlasLensContent"></ng-container>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  }
+</app-shell>
+
+<ng-template #atlasLensContent>
+  @switch (lens()) {
+    @case ('architecture') {
+      @if (result()?.components?.length) {
+        <div class="architecture-map">
+          @for (component of result()?.components; track component.id) {
+            <button type="button" class="architecture-node" [class.selected]="selectedComponent()?.id === component.id" (click)="selectComponent(component)">
+              <span class="material-symbols-rounded">{{ iconForKind(component.kind) }}</span>
+              <div><small>{{ component.kind }}</small><strong>{{ component.name }}</strong><p>{{ component.path }}</p></div>
+              <b>{{ relationCount(component.id) }}</b>
+            </button>
+          }
+        </div>
+        @if (result()?.relations?.length) {
+          <div class="relation-ledger">
+            @for (relation of result()?.relations?.slice(0, 8); track relation.from + relation.to + relation.label) {
+              <span><b>{{ relation.from }}</b><i class="material-symbols-rounded">arrow_forward</i><em>{{ relation.label }}</em><i class="material-symbols-rounded">arrow_forward</i><b>{{ relation.to }}</b></span>
+            }
+          </div>
+        }
+      } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'account_tree', title: 'No architecture model yet', copy: 'Run Study again when the AI runtime is available.' }" /> }
+    }
+    @case ('folders') {
+      <div class="folder-map">
+        @for (folder of result()?.folders; track folder.path) {
+          <button type="button" [class.selected]="selectedFolder()?.path === folder.path" (click)="selectFolder(folder)">
+            <span class="material-symbols-rounded">folder</span><div><strong>{{ folderName(folder) }}</strong><small>{{ folderPath(folder) }}</small></div><b>{{ folderChildren(folder).length }}</b>
+            @if (folderChildren(folder).length) { <p>{{ folderChildren(folder).join('  ·  ') }}</p> }
+          </button>
+        } @empty { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'folder_off', title: 'No folders mapped', copy: 'The project root did not expose scannable folders.' }" /> }
+      </div>
+    }
+    @case ('data') {
+      @if (result()?.dataEntities?.length) {
+        <div class="data-map">
+          @for (entity of result()?.dataEntities; track entity.name) {
+            <button type="button" [class.selected]="selectedEntity()?.name === entity.name" (click)="selectEntity(entity)">
+              <header><span class="material-symbols-rounded">database</span><div><small>{{ entity.kind }}</small><strong>{{ entity.name }}</strong></div></header>
+              <p>{{ entity.description }}</p>
+              <ul>@for (field of entity.fields.slice(0, 6); track field) { <li>{{ field }}</li> }</ul>
+            </button>
+          }
+        </div>
+      } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'database_off', title: 'No data model detected', copy: 'Atlas did not find enough evidence to model persistent entities.' }" /> }
+    }
+    @case ('sequences') {
+      @if (result()?.sequences?.length) {
+        <div class="flow-layout">
+          <aside>@for (sequence of result()?.sequences; track sequence.id) { <button type="button" [class.selected]="selectedSequence()?.id === sequence.id" (click)="selectSequence(sequence)"><strong>{{ sequence.name }}</strong><small>{{ sequence.steps.length }} steps</small></button> }</aside>
+          @if (selectedSequence(); as sequence) {
+            <div class="sequence-diagram" [style.--sequence-lanes]="selectedSequenceParticipants().length">
+              <div class="sequence-lanes" [style.grid-template-columns]="sequenceGridColumns(selectedSequenceParticipants())">
+                @for (participant of selectedSequenceParticipants(); track participant) {
+                  <div class="sequence-lane">
+                    <span>{{ participant.slice(0, 2).toUpperCase() }}</span>
+                    <strong>{{ participant }}</strong>
+                  </div>
+                }
+              </div>
+              <div class="sequence-steps" [style.grid-template-columns]="sequenceGridColumns(selectedSequenceParticipants())">
+                @for (step of sequence.steps; track step.order; let index = $index) {
+                  <div class="sequence-step" [attr.data-align]="sequenceStepAlignment(step, selectedSequenceParticipants())" [style.grid-column]="sequenceStepGridColumn(step, selectedSequenceParticipants())" [style.grid-row]="index + 1">
+                    <b>{{ step.order }}</b>
+                    <i></i>
+                    <span>
+                      <small>{{ step.from }} → {{ step.to }}</small>
+                      <strong>{{ step.label }}</strong>
+                    </span>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'conversion_path', title: 'No sequence detected', copy: 'A future study can add request and background-job sequences here.' }" /> }
+    }
+    @case ('workflows') {
+      @if (result()?.workflows?.length) {
+        <div class="flow-layout">
+          <aside>@for (workflow of result()?.workflows; track workflow.id) { <button type="button" [class.selected]="selectedWorkflow()?.id === workflow.id" (click)="selectWorkflow(workflow)"><strong>{{ workflow.name }}</strong><small>{{ workflow.steps.length }} stages</small></button> }</aside>
+          @if (selectedWorkflow(); as workflow) {
+            <f-flow class="workflow-graph workflow-flow" fDraggable (fMoveNodes)="onWorkflowNodesMoved($event)">
+              <f-canvas fZoom [fZoomMinimum]="0.7" [fZoomMaximum]="1.4" [fZoomStep]="0.1">
+                <ng-container ngProjectAs="[fConnections]">
+                  @for (connection of selectedWorkflowConnections(); track connection.id) {
+                    <f-connection [fConnectionId]="connection.id" [fSourceId]="connection.sourceId" [fTargetId]="connection.targetId" fType="segment"></f-connection>
+                  }
+                </ng-container>
+                <ng-container ngProjectAs="[fNodes]">
+                  @for (node of selectedWorkflowNodes(); track node.id) {
+                    <article fNode fDragHandle class="workflow-node workflow-node-flow" [fNodeId]="node.id" [fNodePosition]="node.position" [attr.data-kind]="node.kind">
+                      <b>{{ node.index + 1 }}</b>
+                      <span>{{ workflowStageKind(node.index, workflow.steps.length) }}</span>
+                      <strong>{{ node.label }}</strong>
+                      <i class="workflow-connector workflow-connector-target" fConnector fConnectorType="target" [fConnectorId]="node.targetConnectorId"></i>
+                      <i class="workflow-connector workflow-connector-source" fConnector fConnectorType="source" [fConnectorId]="node.sourceConnectorId"></i>
+                    </article>
+                  }
+                </ng-container>
+              </f-canvas>
+            </f-flow>
+            <div class="workflow-minimap" aria-hidden="true">
+              @for (node of selectedWorkflowNodes(); track node.id) {
+                <span [style.left.px]="node.position.x / 6" [style.top.px]="node.position.y / 6"></span>
+              }
+            </div>
+          }
+        </div>
+      } @else { <ng-container *ngTemplateOutlet="emptyLens; context: { icon: 'route', title: 'No workflow detected', copy: 'Atlas only renders workflows supported by repository evidence.' }" /> }
+    }
+  }
+</ng-template>
+
+<ng-template #emptyLens let-icon="icon" let-title="title" let-copy="copy">
+  <div class="lens-empty"><span class="material-symbols-rounded">{{ icon }}</span><h3>{{ title }}</h3><p>{{ copy }}</p></div>
+</ng-template>

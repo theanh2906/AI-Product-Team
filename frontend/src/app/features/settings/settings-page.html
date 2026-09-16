@@ -1,0 +1,1086 @@
+<app-shell>
+  <main class="feature-main settings-page">
+    <header class="feature-header">
+      <div>
+        <div class="eyebrow">LOCAL CONFIGURATION</div>
+        <h1>Settings</h1>
+        <p>Control where repositories are stored and how private Git repositories authenticate.</p>
+      </div>
+      <span class="status-pill">Local only</span>
+    </header>
+
+    @if (successMessage(); as success) {
+      <div class="notice success" role="status">
+        <span class="material-symbols-rounded">check_circle</span>
+        <div><strong>Settings updated</strong><span>{{ success }}</span></div>
+      </div>
+    }
+    @if (errorMessage(); as error) {
+      <div class="notice error" role="alert">
+        <span class="material-symbols-rounded">error</span>
+        <div><strong>Settings need attention</strong><span>{{ error }}</span></div>
+      </div>
+    }
+
+    @if (loading()) {
+      <div class="settings-loading"><span class="material-symbols-rounded spin">progress_activity</span>Loading local settings…</div>
+    } @else {
+      <form class="settings-grid" [formGroup]="form" (ngSubmit)="save()">
+        <div class="settings-content">
+          <section class="settings-card" aria-labelledby="workspace-settings-heading">
+            <div class="settings-card-header">
+              <span class="settings-icon material-symbols-rounded">folder_open</span>
+              <div><h2 id="workspace-settings-heading">Workspace storage</h2><p>Git imports are cloned into this parent folder.</p></div>
+            </div>
+            <div class="settings-card-body">
+              <label class="field"><span>Default clone path</span>
+                <input type="text" formControlName="clonePath" placeholder="C:\Users\you\AI-Product-Team-Workspaces" autocomplete="off" spellcheck="false" [attr.aria-invalid]="form.controls.clonePath.touched && form.controls.clonePath.invalid" [attr.aria-describedby]="form.controls.clonePath.touched && form.controls.clonePath.invalid ? 'clone-path-help clone-path-error' : 'clone-path-help'">
+                <small id="clone-path-help" class="field-help">Paste an absolute folder path. A missing folder will be created when settings are saved.</small>
+                @if (form.controls.clonePath.touched && form.controls.clonePath.invalid) {
+                  <small id="clone-path-error" class="field-error">
+                    {{ form.controls.clonePath.hasError('required') ? 'Clone path is required.' : 'Enter a valid absolute folder path.' }}
+                  </small>
+                }
+              </label>
+              <div class="settings-note"><span class="material-symbols-rounded">info</span><p>Each cloned repository gets its own child folder. Existing projects are never overwritten.</p></div>
+            </div>
+          </section>
+
+          <section class="settings-card" id="storage-datasource-card" aria-labelledby="storage-datasource-heading">
+            <div class="settings-card-header">
+              <span class="settings-icon material-symbols-rounded">database</span>
+              <div><h2 id="storage-datasource-heading">Storage datasource</h2><p>Choose where ProductCrew stores boards, insights, notifications, lifecycle events, and build profile cache.</p></div>
+              <span class="credential-status" [class.ready]="datasourceBadgeLabel() === 'Ready'"><i></i>{{ datasourceBadgeLabel() }}</span>
+            </div>
+            <div class="settings-card-body">
+              @if (datasourceError(); as error) {
+                <div class="notice error" role="alert">
+                  <span class="material-symbols-rounded">error</span>
+                  <div><strong>Storage datasource needs attention</strong><span>{{ error }}</span></div>
+                </div>
+              }
+
+              @if (migrationResult(); as result) {
+                @if (result.applied) {
+                  <div class="notice success" role="status">
+                    <span class="material-symbols-rounded">check_circle</span>
+                    <div>
+                      <strong>Datasource switched</strong>
+                      <span>ProductCrew migrated durable records and now uses {{ datasourceLabel(result.targetKind) }}.</span>
+                      <ul class="migration-counts">
+                        <li>Boards · {{ result.counts.boards }} migrated</li>
+                        <li>Insights · {{ result.counts.insights }} migrated</li>
+                        <li>Lifecycle events · {{ result.counts.events }} migrated</li>
+                        <li>Notifications · {{ result.counts.notifications }} migrated</li>
+                        <li>Build profile cache · {{ result.counts.buildProfiles }} migrated</li>
+                        <li>Git delivery history · {{ result.counts.gitDeliveries || 0 }} migrated</li>
+                      </ul>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="notice error" role="alert">
+                    <span class="material-symbols-rounded">error</span>
+                    <div>
+                      <strong>Migration failed. Current datasource kept active.</strong>
+                      <span>{{ migrationError() || result.message }}</span>
+                      <p>Rollback completed. ProductCrew stayed on {{ datasourceLabel(result.sourceKind) }} and did not commit a partial switch.</p>
+                    </div>
+                  </div>
+                }
+              }
+
+              @if (datasourceLoading()) {
+                <div class="settings-loading"><span class="material-symbols-rounded spin">progress_activity</span>Loading storage datasource…</div>
+              } @else {
+                <div class="datasource-summary">
+                  <span class="credential-status" [class.ready]="datasourceStatus()?.status === 'ok'"><i></i>{{ datasourceLabel(datasourceStatus()?.kind) }}</span>
+                  <p>{{ datasourceStatus()?.summary }}</p>
+                  <p class="settings-note"><span class="material-symbols-rounded">schedule</span><span>Last checked: {{ formattedDatasourceCheckedAt(datasourceStatus()?.lastCheckedAt) }}</span></p>
+                  @if (datasourceStatus()?.status === 'unavailable') {
+                    <div class="notice error" role="alert">
+                      <span class="material-symbols-rounded">warning</span>
+                      <div>
+                        <strong>Active datasource unavailable</strong>
+                        <span>ProductCrew can still show the last durable data it loaded, but new durable writes are blocked until this datasource is reachable again.</span>
+                        @if (datasourceStatus()?.message) { <p>{{ datasourceStatus()?.message }}</p> }
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="settings-note"><span class="material-symbols-rounded">info</span><p>Current default for existing installs. Upgrade-safe and ready without additional setup.</p></div>
+                  }
+                </div>
+
+                <div class="settings-actions">
+                  <button type="button" class="secondary-button compact" [disabled]="datasourceChecking() || changeFlowOpen()" (click)="checkActiveDatasource()">
+                    <span class="material-symbols-rounded" [class.spin]="datasourceChecking()">refresh</span>{{ datasourceChecking() ? 'Checking…' : 'Check status' }}
+                  </button>
+                  @if (!changeFlowOpen()) {
+                    <button type="button" class="secondary-button compact" (click)="openChangeDatasource()">
+                      <span class="material-symbols-rounded">swap_horiz</span>Change datasource
+                    </button>
+                  } @else {
+                    <button type="button" class="secondary-button compact" [disabled]="migrating()" (click)="cancelChangeDatasource()">
+                      <span class="material-symbols-rounded">close</span>Cancel change
+                    </button>
+                  }
+                </div>
+              }
+
+              @if (changeFlowOpen()) {
+                <div class="datasource-change-flow">
+                  <ol class="datasource-stepper">
+                    <li [attr.aria-current]="changeStep() === 1 ? 'step' : null" [class.active]="changeStep() === 1">1. Configure target</li>
+                    <li [attr.aria-current]="changeStep() === 2 ? 'step' : null" [class.active]="changeStep() === 2">2. Verify connection</li>
+                    <li [attr.aria-current]="changeStep() === 3 ? 'step' : null" [class.active]="changeStep() === 3">3. Confirm migration</li>
+                  </ol>
+
+                  @if (changeStep() === 1) {
+                    <div class="datasource-step">
+                      <div class="datasource-kind-tiles" role="radiogroup" aria-label="Target datasource backend">
+                        <button type="button" role="radio" [attr.aria-checked]="targetKind() === 'local-json'" [class.selected]="targetKind() === 'local-json'" [disabled]="migrating()" (click)="selectTargetKind('local-json')">Local JSON</button>
+                        <button type="button" role="radio" [attr.aria-checked]="targetKind() === 'sqlite'" [class.selected]="targetKind() === 'sqlite'" [disabled]="migrating()" (click)="selectTargetKind('sqlite')">SQLite</button>
+                      </div>
+                      @if (targetKind() === 'local-json') {
+                        <label class="field"><span>Data directory</span>
+                          <input type="text" [value]="targetLocalDirectory()" (input)="updateTargetLocalDirectory($event)" placeholder="C:\Users\you\.productcrew\data" autocomplete="off" spellcheck="false" aria-describedby="target-local-help">
+                          <small id="target-local-help" class="field-help">Absolute folder path for the durable data directory.</small>
+                        </label>
+                      } @else {
+                        <label class="field"><span>Database file</span>
+                          <input type="text" [value]="targetSqlitePath()" (input)="updateTargetSqlitePath($event)" placeholder="C:\Users\you\.productcrew\productcrew.db" autocomplete="off" spellcheck="false" aria-describedby="target-sqlite-help">
+                          <small id="target-sqlite-help" class="field-help">Absolute file path for the SQLite database. The file is created on first successful migration if missing.</small>
+                        </label>
+                      }
+                      <div class="settings-note"><span class="material-symbols-rounded">info</span><p>Affects boards, insights, lifecycle events, notifications, and build profile cache. <code>settings.json</code> stays as bootstrap config.</p></div>
+                      @if (targetIsActiveDatasource()) {
+                        <p class="field-error">This datasource is already active.</p>
+                      }
+                      <div class="datasource-step-actions">
+                        <button type="button" class="secondary-button compact" (click)="cancelChangeDatasource()">Cancel</button>
+                        <button type="button" class="primary-button compact" [disabled]="targetChecking() || targetIsActiveDatasource() || (targetKind() === 'local-json' ? !targetLocalDirectory().trim() : !targetSqlitePath().trim())" (click)="checkTargetDatasource()">
+                          <span class="material-symbols-rounded" [class.spin]="targetChecking()">bolt</span>{{ targetChecking() ? 'Checking…' : 'Check status' }}
+                        </button>
+                      </div>
+                    </div>
+                  }
+
+                  @if (changeStep() === 2) {
+                    <div class="datasource-step" role="region" aria-label="Verification result">
+                      @if (targetCheckStale()) {
+                        <div class="notice error" role="alert"><span class="material-symbols-rounded">warning</span><div><strong>Verification out of date</strong><span>Run Check status again for the updated target.</span></div></div>
+                      } @else if (targetCheckResult()?.status === 'ok') {
+                        <div class="notice success" role="status">
+                          <span class="material-symbols-rounded">check_circle</span>
+                          <div><strong>{{ datasourceLabel(targetCheckResult()?.kind) }} verified</strong><span>{{ targetCheckResult()?.summary }}</span></div>
+                        </div>
+                      } @else {
+                        <div class="notice error" role="alert">
+                          <span class="material-symbols-rounded">error</span>
+                          <div><strong>Verification failed</strong><span>{{ targetCheckResult()?.message }}</span><p>Keep the current datasource active until this target passes a fresh status check.</p></div>
+                        </div>
+                      }
+                      <div class="datasource-step-actions">
+                        <button type="button" class="secondary-button compact" (click)="backToConfigureStep()">Back</button>
+                        <button type="button" class="secondary-button compact" [disabled]="targetChecking()" (click)="checkTargetDatasource()">Check again</button>
+                        <button type="button" class="primary-button compact" [disabled]="targetChecking() || targetCheckStale() || targetCheckResult()?.status !== 'ok'" (click)="continueToMigration()">Continue to migration</button>
+                      </div>
+                    </div>
+                  }
+
+                  @if (changeStep() === 3) {
+                    <div class="datasource-step">
+                      <div class="datasource-source-target">
+                        <div><small>Current active datasource</small><strong>{{ datasourceLabel(datasourceStatus()?.kind) }}</strong></div>
+                        <span class="material-symbols-rounded">arrow_forward</span>
+                        <div><small>Target datasource</small><strong>{{ datasourceLabel(targetKind()) }}</strong></div>
+                      </div>
+                      <div class="settings-note"><span class="material-symbols-rounded">warning</span><p>ProductCrew copies durable records before switching the active datasource. Failed migration keeps the current datasource active.</p></div>
+                      <label class="field-checkbox">
+                        <input type="checkbox" [checked]="migrationAcknowledged()" [disabled]="migrating()" (change)="toggleMigrationAcknowledged($event)">
+                        <span>I understand ProductCrew will copy durable records to the target datasource and will keep the current datasource active if migration fails.</span>
+                      </label>
+                      <div class="datasource-step-actions">
+                        <button type="button" class="secondary-button compact" [disabled]="migrating()" (click)="changeStep.set(2)">Back</button>
+                        <button type="button" class="primary-button compact" [disabled]="migrating() || !migrationAcknowledged()" (click)="confirmMigration()">
+                          <span class="material-symbols-rounded" [class.spin]="migrating()">sync</span>{{ migrating() ? 'Migrating…' : 'Migrate and switch' }}
+                        </button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          </section>
+
+          <section class="settings-card" aria-labelledby="update-settings-heading">
+            <div class="settings-card-header">
+              <span class="settings-icon material-symbols-rounded">system_update</span>
+              <div><h2 id="update-settings-heading">Installer updates</h2><p>ProductCrew checks this local release channel for signed-off installer builds.</p></div>
+              @if (updates.status(); as update) {
+                <span class="credential-status" [class.ready]="update.state === 'current' || update.state === 'available'"><i></i>{{ update.enabled ? (update.state === 'available' ? 'Update ready' : update.state === 'current' ? 'Up to date' : 'Channel unavailable') : 'Installer only' }}</span>
+              }
+            </div>
+            <div class="settings-card-body">
+              <label class="field"><span>Update folder</span>
+                <input type="text" formControlName="updatePath" placeholder="C:\Tools\updates" autocomplete="off" spellcheck="false" [attr.aria-invalid]="form.controls.updatePath.touched && form.controls.updatePath.invalid">
+                <small class="field-help">Installer builds check <code>installer-latest.json</code> here at startup and every five minutes. Missing folders are created when settings are saved.</small>
+                @if (form.controls.updatePath.touched && form.controls.updatePath.invalid) {
+                  <small class="field-error">Enter a valid absolute folder path.</small>
+                }
+              </label>
+              <div class="settings-note"><span class="material-symbols-rounded">verified_user</span><p>Portable builds never check or apply application updates. Installer packages verify version, size, and SHA-256 before launching NSIS.</p></div>
+              <button type="button" class="secondary-button compact" [disabled]="updates.checking()" (click)="updates.check()"><span class="material-symbols-rounded" [class.spin]="updates.checking()">refresh</span>{{ updates.checking() ? 'Checking…' : 'Check for updates' }}</button>
+            </div>
+          </section>
+
+          <section class="settings-card" aria-labelledby="ai-platform-settings-heading">
+            <div class="settings-card-header">
+              <span class="settings-icon material-symbols-rounded">hub</span>
+              <div><h2 id="ai-platform-settings-heading">AI Platform</h2><p>Choose the local coding agent ProductCrew should prefer for new AI work.</p></div>
+              <span class="credential-status ready"><i></i>{{ aiProviderLabel(form.controls.aiProvider.value) }}</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="ai-platform-grid">
+                @for (provider of aiProviderOptions; track provider.id) {
+                  <label class="ai-provider-card" [class.active]="form.controls.aiProvider.value === provider.id">
+                    <input type="radio" formControlName="aiProvider" [value]="provider.id">
+                    <span class="material-symbols-rounded">{{ provider.icon }}</span>
+                    <strong>{{ provider.label }}</strong>
+                    <small>{{ provider.description }}</small>
+                    <em>{{ provider.tone }}</em>
+                    @if (runtimeTool(provider.id); as tool) {
+                      <b [class.ready]="tool.status === 'ready'">{{ statusLabel(tool) }}</b>
+                    }
+                  </label>
+                }
+              </div>
+              <div class="fallback-row">
+                <label class="toggle-row">
+                  <input type="checkbox" formControlName="aiFallbackEnabled">
+                  <span><strong>Enable fallback runtime</strong><small>Use only when the preferred platform is unavailable for a new job.</small></span>
+                </label>
+                <label class="field"><span>Fallback provider</span>
+                  <select formControlName="aiFallbackProvider">
+                    <option value="">None</option>
+                    <option value="codex">Codex</option>
+                    <option value="claude-code">Claude Code</option>
+                    <option value="github-copilot">GitHub Copilot</option>
+                  </select>
+                </label>
+              </div>
+              <div class="settings-note"><span class="material-symbols-rounded">shield</span><p>ProductCrew stores only the provider preference. Codex, Claude, and GitHub Copilot credentials remain inside their own local CLI sessions for the current Windows user.</p></div>
+              <div class="model-settings-row">
+                <div class="two-column-fields">
+                  <label class="field"><span>Codex model</span>
+                    <select formControlName="codexModel" (change)="selectAgentModel('codex', $event)" [disabled]="agentModelOptionsLoading() || modelOptions('codex').length === 0">
+                      <option value="">CLI default</option>
+                      @for (model of modelOptions('codex'); track model.id) {
+                        <option [value]="model.id">{{ model.label }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field"><span>Codex effort</span>
+                    <select formControlName="codexEffort">
+                      @for (effort of effortOptions('codex'); track effort) {
+                        <option [value]="effort">{{ readableEffort(effort) }}</option>
+                      }
+                    </select>
+                  </label>
+                </div>
+                <div class="model-row-messages">
+                  <div class="model-field-messages">
+                    <small class="field-help">{{ modelGroup('codex')?.error || 'Options loaded from codex debug models.' }}</small>
+                    @if (selectedModelUnavailable('codex')) { <small class="field-help warning">Saved model is not in the current Codex catalog. Pick a listed model before saving.</small> }
+                  </div>
+                  <div class="model-field-messages">
+                    <small class="field-help">Reasoning levels come from the selected Codex model catalog.</small>
+                  </div>
+                </div>
+              </div>
+              <div class="model-settings-row">
+                <div class="two-column-fields">
+                  <label class="field"><span>Claude Code model</span>
+                    <select formControlName="claudeCodeModel" (change)="selectAgentModel('claude-code', $event)" [disabled]="agentModelOptionsLoading() || modelOptions('claude-code').length === 0">
+                      @for (model of modelOptions('claude-code'); track model.id) {
+                        <option [value]="model.id">{{ model.label }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field"><span>Claude Code effort</span>
+                    <select formControlName="claudeCodeEffort">
+                      @for (effort of effortOptions('claude-code'); track effort) {
+                        <option [value]="effort">{{ readableEffort(effort) }}</option>
+                      }
+                    </select>
+                  </label>
+                </div>
+                <div class="model-row-messages">
+                  <div class="model-field-messages">
+                    <small class="field-help">{{ modelGroup('claude-code')?.error || 'Aliases loaded from claude --help.' }}</small>
+                    @if (selectedModelUnavailable('claude-code')) { <small class="field-help warning">Saved model is not in the current Claude Code catalog. Pick a listed model before saving.</small> }
+                  </div>
+                  <div class="model-field-messages">
+                    <small class="field-help">Effort values come from Claude Code CLI help.</small>
+                  </div>
+                </div>
+              </div>
+              <div class="model-settings-row">
+                <div class="two-column-fields">
+                  <label class="field"><span>GitHub Copilot model</span>
+                    <select formControlName="githubCopilotModel" (change)="selectAgentModel('github-copilot', $event)" [disabled]="agentModelOptionsLoading() || modelOptions('github-copilot').length === 0">
+                      @for (model of modelOptions('github-copilot'); track model.id) {
+                        <option [value]="model.id">{{ model.label }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field"><span>GitHub Copilot effort</span>
+                    <select formControlName="githubCopilotEffort" [disabled]="!modelSupportsEffort('github-copilot')">
+                      @if (!modelSupportsEffort('github-copilot')) {
+                        <option value="">Automatic</option>
+                      } @else {
+                        @for (effort of effortOptions('github-copilot'); track effort) {
+                          <option [value]="effort">{{ readableEffort(effort) }}</option>
+                        }
+                      }
+                    </select>
+                  </label>
+                </div>
+                <div class="model-row-messages">
+                  <div class="model-field-messages">
+                    <small class="field-help">{{ modelGroup('github-copilot')?.error || 'Options loaded from gh copilot -- --help and help config.' }}</small>
+                    @if (selectedModelUnavailable('github-copilot')) { <small class="field-help warning">Saved model is not in the current GitHub Copilot catalog. Pick a listed model before saving.</small> }
+                  </div>
+                  <div class="model-field-messages">
+                    <small class="field-help">{{ modelSupportsEffort('github-copilot') ? 'Effort values come from GitHub Copilot CLI help.' : 'Copilot controls reasoning effort automatically for this model.' }}</small>
+                  </div>
+                </div>
+              </div>
+              <div class="runtime-defaults">
+                <span class="material-symbols-rounded">psychology_alt</span>
+                <div><small>Agent runtime</small><strong>Codex: {{ codexRuntimeLabel() }} · Claude: {{ claudeCodeRuntimeLabel() }} · Copilot: {{ githubCopilotRuntimeLabel() }}</strong></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-card" aria-labelledby="git-settings-heading">
+            <div class="settings-card-header">
+              <span class="settings-icon material-symbols-rounded">key</span>
+              <div><h2 id="git-settings-heading">Git authentication</h2><p>Used only when cloning private repositories over HTTPS.</p></div>
+              <span class="credential-status" [class.ready]="settings()?.patConfigured"><i></i>{{ settings()?.patConfigured ? 'Credential ready' : 'Not configured' }}</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="two-column-fields">
+                <label class="field"><span>Git provider</span>
+                  <select formControlName="gitProvider">
+                    <option value="github">GitHub</option>
+                    <option value="gitlab">GitLab</option>
+                    <option value="generic">Generic HTTPS Git</option>
+                  </select>
+                </label>
+                <label class="field"><span>Username <small>Optional</small></span><input type="text" formControlName="gitUsername" placeholder="Provider default" autocomplete="username"></label>
+              </div>
+              <label class="field"><span>Personal access token</span>
+                <div class="token-field"><input [type]="showToken() ? 'text' : 'password'" formControlName="personalAccessToken" [placeholder]="settings()?.patConfigured ? 'Leave blank to keep current token' : 'Paste a personal access token'" autocomplete="new-password"><button type="button" (click)="showToken.set(!showToken())" [attr.aria-label]="showToken() ? 'Hide token' : 'Show token'"><span class="material-symbols-rounded">{{ showToken() ? 'visibility_off' : 'visibility' }}</span></button></div>
+              </label>
+              <div class="credential-storage">
+                <span class="material-symbols-rounded">verified_user</span>
+                <div><strong>Stored in {{ settings()?.credentialType }}</strong><p>The token is never written to the app settings file or returned to the browser.</p></div>
+                @if (settings()?.patConfigured) { <button type="button" class="danger-link" (click)="clearPAT()">Remove credential</button> }
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-card" id="email-notifications-card" aria-labelledby="email-notifications-heading" [formGroup]="emailForm">
+            <div class="settings-card-header">
+              <span class="settings-icon material-symbols-rounded">mail</span>
+              <div><h2 id="email-notifications-heading">Email notifications</h2><p>Get an email for high-signal ProductCrew events instead of watching the app.</p></div>
+              <span class="credential-status" [class.ready]="emailSettings()?.enabled"><i></i>{{ emailSettings()?.enabled ? 'Enabled' : 'Disabled' }}</span>
+            </div>
+            <div class="settings-card-body">
+              @if (emailError(); as error) {
+                <div class="notice error" role="alert">
+                  <span class="material-symbols-rounded">error</span>
+                  <div><strong>Email notifications need attention</strong><span>{{ error }}</span></div>
+                </div>
+              }
+
+              <div class="two-column-fields">
+                <label class="field"><span>Destination email</span>
+                  <input type="email" formControlName="destinationEmail" placeholder="you@example.com" autocomplete="off" spellcheck="false" [attr.aria-invalid]="emailForm.controls.destinationEmail.touched && emailForm.controls.destinationEmail.invalid">
+                  @if (emailForm.controls.destinationEmail.touched && emailForm.controls.destinationEmail.invalid) { <small class="field-error">Enter a valid destination email address.</small> }
+                </label>
+                <label class="field"><span>Sender name <small>Optional</small></span>
+                  <input type="text" formControlName="senderName" placeholder="ProductCrew" autocomplete="off">
+                </label>
+              </div>
+              <div class="two-column-fields">
+                <label class="field"><span>Sender address</span>
+                  <input type="email" formControlName="senderAddress" placeholder="productcrew@example.com" autocomplete="off" spellcheck="false" [attr.aria-invalid]="emailForm.controls.senderAddress.touched && emailForm.controls.senderAddress.invalid">
+                  @if (emailForm.controls.senderAddress.touched && emailForm.controls.senderAddress.invalid) { <small class="field-error">Enter a valid sender email address.</small> }
+                </label>
+                <label class="field"><span>Security</span>
+                  <select formControlName="smtpSecurity">
+                    <option value="none">None</option>
+                    <option value="starttls">STARTTLS</option>
+                    <option value="tls">TLS</option>
+                  </select>
+                </label>
+              </div>
+              <div class="two-column-fields">
+                <label class="field"><span>SMTP host</span>
+                  <input type="text" formControlName="smtpHost" placeholder="smtp.example.com" autocomplete="off" spellcheck="false" [attr.aria-invalid]="emailForm.controls.smtpHost.touched && emailForm.controls.smtpHost.invalid">
+                </label>
+                <label class="field"><span>SMTP port</span>
+                  <input type="number" formControlName="smtpPort" min="1" max="65535" [attr.aria-invalid]="emailForm.controls.smtpPort.touched && emailForm.controls.smtpPort.invalid">
+                </label>
+              </div>
+              <div class="two-column-fields">
+                <label class="field"><span>Username <small>Optional</small></span>
+                  <input type="text" formControlName="smtpUsername" placeholder="SMTP username" autocomplete="off">
+                </label>
+                <label class="field"><span>App base URL <small>Optional</small></span>
+                  <input type="text" formControlName="appBaseUrl" placeholder="http://127.0.0.1:8081" autocomplete="off" spellcheck="false">
+                  <small class="field-help">Used to build links back to ProductCrew in notification emails.</small>
+                </label>
+              </div>
+              <label class="field"><span>SMTP password</span>
+                <div class="token-field">
+                  <input [type]="showEmailPassword() ? 'text' : 'password'" formControlName="password" [placeholder]="emailSettings()?.secretConfigured ? 'Leave blank to keep current password' : 'Paste the SMTP account password'" autocomplete="new-password">
+                  <button type="button" (click)="showEmailPassword.set(!showEmailPassword())" [attr.aria-label]="showEmailPassword() ? 'Hide password' : 'Show password'"><span class="material-symbols-rounded">{{ showEmailPassword() ? 'visibility_off' : 'visibility' }}</span></button>
+                </div>
+              </label>
+              <div class="credential-storage">
+                <span class="material-symbols-rounded">verified_user</span>
+                <div><strong>{{ emailSettings()?.secretConfigured ? 'Password stored in the OS credential vault' : 'No password stored yet' }}</strong><p>Credentials are stored in the operating system credential vault, never written to settings.json, and never shown again after save.</p></div>
+                @if (emailSettings()?.secretConfigured) { <button type="button" class="danger-link" (click)="clearEmailPassword()">Remove credential</button> }
+              </div>
+
+              <fieldset class="two-column-fields" formGroupName="eventPreferences">
+                <legend>Send an email when…</legend>
+                <label class="field-checkbox"><input type="checkbox" formControlName="taskCompleted"><span>A developer task completes</span></label>
+                <label class="field-checkbox"><input type="checkbox" formControlName="blockedNeedsAttention"><span>Work is blocked or needs attention</span></label>
+                <label class="field-checkbox"><input type="checkbox" formControlName="qaResults"><span>QA reports a result</span></label>
+                <label class="field-checkbox"><input type="checkbox" formControlName="buildVerificationFailed"><span>Build verification fails</span></label>
+                <label class="field-checkbox"><input type="checkbox" formControlName="approvalRequired"><span>An approval is required</span></label>
+              </fieldset>
+
+              <label class="field-checkbox">
+                <input type="checkbox" formControlName="enabled" [attr.disabled]="!emailForm.controls.enabled.value && !canEnableEmail() ? true : null">
+                <span>Enable email notifications{{ canEnableEmail() ? '' : ' — send a passing test email with the current settings first' }}</span>
+              </label>
+
+              <div class="settings-actions">
+                <button type="button" class="secondary-button compact" [disabled]="emailTesting() || emailSaving()" (click)="sendTestEmail()">
+                  <span class="material-symbols-rounded" [class.spin]="emailTesting()">forward_to_inbox</span>{{ emailTesting() ? 'Sending test…' : 'Send test email' }}
+                </button>
+                <button type="button" class="primary-button compact" [disabled]="emailSaving() || emailForm.invalid" (click)="saveEmailSettings()">
+                  <span class="material-symbols-rounded" [class.spin]="emailSaving()">save</span>{{ emailSaving() ? 'Saving…' : 'Save email settings' }}
+                </button>
+              </div>
+
+              <div class="datasource-summary">
+                <span class="credential-status" [class.ready]="emailSettings()?.lastTestResult === 'passed'"><i></i>Last test: {{ emailSettings()?.lastTestResult === 'never' ? 'Never run' : (emailSettings()?.lastTestResult === 'passed' ? 'Passed' : 'Failed') }}</span>
+                @if (emailSettings()?.lastTestAt) { <p class="settings-note"><span class="material-symbols-rounded">schedule</span><span>{{ emailSettings()?.lastTestAt | date:'medium' }} · {{ emailSettings()?.lastTestHostPort }}</span></p> }
+                @if (emailSettings()?.lastTestResult === 'failed' && emailSettings()?.lastTestError) {
+                  <div class="notice error" role="alert"><span class="material-symbols-rounded">error</span><div><strong>Last test failed</strong><span>{{ emailSettings()?.lastTestError }}</span></div></div>
+                }
+                @if (emailSettings()?.lastSendFailureSummary) {
+                  <div class="notice error" role="alert">
+                    <span class="material-symbols-rounded">warning</span>
+                    <div><strong>Latest notification email failed to send</strong><span>{{ emailSettings()?.lastSendFailureSummary }}</span><p>{{ emailSettings()?.lastSendFailureAt | date:'medium' }}</p></div>
+                  </div>
+                }
+                <a routerLink="/observability" class="settings-note"><span class="material-symbols-rounded">open_in_new</span><span>Open Observability for delivery logs</span></a>
+              </div>
+            </div>
+          </section>
+
+          <!-- BACKUP & RESTORE CARD -->
+          <section class="settings-card" id="backup-restore-card" aria-labelledby="backup-restore-heading">
+            <div class="settings-card-header">
+              <span class="settings-icon material-symbols-rounded">settings_backup_restore</span>
+              <div>
+                <h2 id="backup-restore-heading">Backup & Restore</h2>
+                <p>Export non-secret preferences, or restore configuration from a portable backup file.</p>
+              </div>
+              <span class="credential-status ready">
+                <i></i>Credential Protected
+              </span>
+            </div>
+
+            <div class="settings-card-body">
+              @if (backupLoading()) {
+                <div class="processing-container">
+                  <span class="spinner material-symbols-rounded spin">progress_activity</span>
+                  <strong>Processing backup file…</strong>
+                  <p>Validating backup payload and parsing differences...</p>
+                </div>
+              } @else if (showDiffPanel()) {
+                <div class="diff-panel-container" role="region" aria-label="Backup differences preview">
+                  <div class="eyebrow">REVIEW SETTINGS DIFFERENCES</div>
+                  <div class="diff-header-meta">
+                    <span><span class="material-symbols-rounded">receipt_long</span>Backup: <strong>productcrew-backup.json</strong></span>
+                    <span><span class="material-symbols-rounded">calendar_month</span>Created: <strong>{{ backupPreview()?.incoming?.createdAt | date:'yyyy-MM-dd HH:mm' }}</strong></span>
+                    <span class="diff-badge">Schema Version 1</span>
+                  </div>
+
+                  <div class="diff-grid" tabindex="0" aria-label="Settings configuration differences list">
+                    @for (diff of diffList(); track diff.key) {
+                      <div class="diff-row" [class]="diff.status">
+                        <span class="diff-property">{{ diff.key }}</span>
+                        <span class="row-badge" [class.add]="diff.status === 'added'" [class.mod]="diff.status === 'modified'" [class.same]="diff.status === 'unchanged'">
+                          {{ diff.status === 'added' ? 'Added' : diff.status === 'modified' ? 'Modified' : 'Identical' }}
+                        </span>
+                        <div class="diff-value-comparison">
+                          @if (diff.status === 'added') {
+                            <span class="old-val" style="font-style: italic;">None (Default)</span>
+                            <span class="material-symbols-rounded arrow">arrow_forward</span>
+                            <span class="new-val">{{ diff.newVal }}</span>
+                          } @else if (diff.status === 'modified') {
+                            <span class="old-val">{{ diff.oldVal }}</span>
+                            <span class="material-symbols-rounded arrow">arrow_forward</span>
+                            <span class="new-val">{{ diff.newVal }}</span>
+                          } @else {
+                            <span class="new-val">{{ diff.newVal }}</span>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+
+                  <div class="backup-disclaimer">
+                    <span class="material-symbols-rounded">info</span>
+                    <span>Note: Secrets and <code>personalAccessToken</code> are excluded from back-ups and will not be overwritten.</span>
+                  </div>
+
+                  <div class="diff-actions">
+                    <button type="button" class="secondary-button" (click)="cancelRestore()">Cancel</button>
+                    <button type="button" class="primary-button" (click)="applyRestore()">
+                      <span class="material-symbols-rounded">settings_backup_restore</span>Apply Settings Restore
+                    </button>
+                  </div>
+                </div>
+              } @else if (backupError(); as error) {
+                <div class="backup-restore-layout">
+                  <div class="error-banner" [class.warn]="backupErrorVersion()" role="alert">
+                    <span class="material-symbols-rounded">warning</span>
+                    <div class="error-banner-content">
+                      <strong>{{ backupErrorVersion() ? 'Unsupported Backup Version' : 'Invalid Backup File' }}</strong>
+                      <p>{{ error }}</p>
+                    </div>
+                  </div>
+
+                  <div class="error-actions">
+                    <button type="button" class="secondary-button" (click)="cancelRestore()">Cancel</button>
+                    @if (backupErrorVersion()) {
+                      <button type="button" class="primary-button" style="background: var(--amber);" [disabled]="updates.checking()" (click)="updates.check()">
+                        <span class="material-symbols-rounded" [class.spin]="updates.checking()">system_update</span>Check for Updates
+                      </button>
+                    } @else {
+                      <button type="button" class="primary-button" (click)="fileInput.click()">
+                        <span class="material-symbols-rounded">upload</span>Try another file
+                      </button>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <div class="backup-restore-layout">
+                  <div class="backup-disclaimer">
+                    <span class="material-symbols-rounded">shield</span>
+                    <span>Secrets, private Git tokens, and provider credentials are never written to the backup file and remain safely in your operating system credential vault.</span>
+                  </div>
+
+                  @if (exportSuccess(); as success) {
+                    <div class="notice success" role="status">
+                      <span class="material-symbols-rounded">check_circle</span>
+                      <div><strong>Export completed</strong><span>{{ success }}</span></div>
+                    </div>
+                  }
+                  @if (exportError(); as error) {
+                    <div class="notice error" role="alert">
+                      <span class="material-symbols-rounded">error</span>
+                      <div><strong>Export failed</strong><span>{{ error }}</span></div>
+                    </div>
+                  }
+
+                  <div class="backup-actions-grid">
+                    <div class="export-block">
+                      <div>
+                        <div class="eyebrow">EXPORT</div>
+                        <p>Save your active preferences (workspace folders, preferred model names, and fallback behaviors) into a lightweight JSON file.</p>
+                      </div>
+                      <button type="button" class="secondary-button" [disabled]="exportLoading()" (click)="exportSettingsBackup()">
+                        @if (exportLoading()) {
+                          <span class="spinner material-symbols-rounded spin">progress_activity</span>Exporting...
+                        } @else {
+                          <span class="material-symbols-rounded">download</span>Export Settings
+                        }
+                      </button>
+                    </div>
+
+                    <div class="import-dropzone"
+                         [class.dragover]="dragOverDropzone()"
+                         [class.disabled]="exportLoading()"
+                         (dragover)="onDragOver($event)"
+                         (dragleave)="onDragLeave()"
+                         (drop)="onDrop($event)"
+                         (click)="fileInput.click()">
+                      <span class="material-symbols-rounded upload-icon">cloud_upload</span>
+                      <p>
+                        <strong>Drag & drop a settings backup file here</strong>
+                        or click to browse local folders
+                      </p>
+                      <button type="button" class="secondary-button compact" [disabled]="exportLoading()" (click)="$event.stopPropagation(); fileInput.click()">Browse File</button>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              <!-- Hidden native file input -->
+              <input type="file" #fileInput class="hidden-file-input" hidden style="display: none;" accept=".json" (change)="onFileSelected($event)">
+            </div>
+          </section>
+        </div>
+
+        <aside class="settings-summary">
+          <div class="settings-summary-header"><span class="eyebrow">CONFIGURATION SUMMARY</span><h2>Ready for imports</h2></div>
+          <div class="summary-item"><span class="material-symbols-rounded">drive_file_move</span><div><small>Clone location</small><strong>{{ form.controls.clonePath.value || 'Not configured' }}</strong></div></div>
+          <div class="summary-item"><span class="material-symbols-rounded">system_update</span><div><small>Installer updates</small><strong>{{ form.controls.updatePath.value || 'Not configured' }}</strong></div></div>
+          <div class="summary-item"><span class="material-symbols-rounded">psychology</span><div><small>AI platform</small><strong>{{ aiProviderLabel(form.controls.aiProvider.value) }}{{ form.controls.aiFallbackEnabled.value ? ' → ' + aiProviderLabel(form.controls.aiFallbackProvider.value) : '' }}</strong></div></div>
+          <div class="summary-item"><span class="material-symbols-rounded">smart_toy</span><div><small>Codex runtime</small><strong>{{ readableModel('codex', form.controls.codexModel.value) }} · {{ readableEffort(form.controls.codexEffort.value) }}</strong></div></div>
+          <div class="summary-item"><span class="material-symbols-rounded">psychology_alt</span><div><small>Claude Code runtime</small><strong>{{ readableModel('claude-code', form.controls.claudeCodeModel.value) }} · {{ readableEffort(form.controls.claudeCodeEffort.value) }}</strong></div></div>
+          <div class="summary-item"><span class="material-symbols-rounded">hub</span><div><small>GitHub Copilot runtime</small><strong>{{ githubCopilotRuntimeLabel() }}</strong></div></div>
+          <div class="summary-item"><span class="material-symbols-rounded">account_tree</span><div><small>Git provider</small><strong>{{ form.controls.gitProvider.value === 'github' ? 'GitHub' : form.controls.gitProvider.value === 'gitlab' ? 'GitLab' : 'Generic HTTPS Git' }}</strong></div></div>
+          @if (settings()?.githubAccount) { <div class="summary-item"><span class="material-symbols-rounded">manage_accounts</span><div><small>GitHub CLI account</small><strong>{{ settings()?.githubAccount }}</strong></div></div> }
+          <div class="summary-item"><span class="material-symbols-rounded">{{ settings()?.patConfigured ? 'lock' : 'lock_open' }}</span><div><small>Private repositories</small><strong>{{ settings()?.patConfigured ? 'Enabled' : 'PAT required' }}</strong></div></div>
+          <div class="summary-item"><span class="material-symbols-rounded">database</span><div><small>Storage datasource</small><strong>{{ datasourceLabel(datasourceStatus()?.kind) }} · {{ datasourceBadgeLabel().toLowerCase() }}</strong></div></div>
+          <details class="summary-locations">
+            <summary><span class="material-symbols-rounded">database</span><span><strong>Data locations</strong><small>Settings, board, insights and logs</small></span><span class="material-symbols-rounded expand-icon">expand_more</span></summary>
+            <div class="summary-location-list">
+              <div><span class="material-symbols-rounded">data_object</span><span><small>Settings file</small><strong [title]="settings()?.configPath">{{ settings()?.configPath }}</strong></span></div>
+              <div><span class="material-symbols-rounded">view_kanban</span><span><small>Board storage</small><strong [title]="settings()?.boardDataPath">{{ settings()?.boardDataPath }}</strong></span></div>
+              <div><span class="material-symbols-rounded">psychology_alt</span><span><small>AI insight storage</small><strong [title]="settings()?.insightDataPath">{{ settings()?.insightDataPath }}</strong></span></div>
+              <div><span class="material-symbols-rounded">timeline</span><span><small>Lifecycle events</small><strong [title]="settings()?.eventDataPath">{{ settings()?.eventDataPath }}</strong></span></div>
+              <div><span class="material-symbols-rounded">notifications</span><span><small>Notification storage</small><strong [title]="settings()?.notificationDataPath">{{ settings()?.notificationDataPath }}</strong></span></div>
+              <div><span class="material-symbols-rounded">fact_check</span><span><small>Build profile cache</small><strong [title]="settings()?.buildProfileDataPath">{{ settings()?.buildProfileDataPath }}</strong></span></div>
+              <div><span class="material-symbols-rounded">description</span><span><small>Application logs</small><strong [title]="settings()?.logPath">{{ settings()?.logPath }}</strong></span></div>
+            </div>
+          </details>
+          <p class="summary-help"><span class="material-symbols-rounded">shield</span>Secrets stay in the operating system credential vault.</p>
+          <button class="primary-button" type="submit" [disabled]="saving() || form.invalid">
+            <span class="material-symbols-rounded" [class.spin]="saving()">{{ saving() ? 'progress_activity' : 'save' }}</span>
+            {{ saving() ? 'Saving settings…' : 'Save settings' }}
+          </button>
+        </aside>
+      </form>
+
+      <section class="build-verification-section" aria-labelledby="build-verification-heading">
+        <header class="build-verification-header">
+          <span class="settings-icon material-symbols-rounded">fact_check</span>
+          <div>
+            <span class="eyebrow">DELIVERY SAFETY</span>
+            <h2 id="build-verification-heading">Build Verification</h2>
+            <p>Scan local build files, then choose the command exposed on the Work Board.</p>
+          </div>
+          <span class="build-profile-status" [attr.data-status]="buildProfile()?.status || 'not_detected'"><i></i>{{ buildStatusLabel(buildProfile()) }}</span>
+        </header>
+
+        <div class="build-verification-toolbar">
+          <label class="build-project-select">
+            <span>Project</span>
+            <select [value]="selectedBuildProjectId()" (change)="selectBuildProject($event)">
+              @for (project of projects(); track project.id) { <option [value]="project.id" [selected]="project.id === selectedBuildProjectId()">{{ project.name }} · {{ project.source }}</option> }
+            </select>
+          </label>
+          <button type="button" class="secondary-button build-detect-button" (click)="detectBuildActions()" [disabled]="!selectedBuildProjectId() || buildDetecting() || runningBuildAction() !== null">
+            <span class="material-symbols-rounded" [class.spin]="buildDetecting()">{{ buildDetecting() ? 'progress_activity' : 'manage_search' }}</span>
+            {{ buildDetecting() ? 'Scanning scripts…' : buildProfile()?.status === 'not_detected' ? 'Detect build actions' : 'Detect again' }}
+          </button>
+        </div>
+
+        @if (buildProfileLoading()) {
+          <div class="build-profile-empty"><span class="material-symbols-rounded spin">progress_activity</span><strong>Loading cached build profile…</strong></div>
+        } @else if (buildProfile(); as profile) {
+          @if (profile.status === 'not_detected') {
+            <div class="build-profile-empty"><span class="material-symbols-rounded">terminal</span><div><strong>No cached build profile</strong><p>Detect package.json, Makefile, Go and Rust build definitions for this project.</p></div></div>
+          } @else if (profile.status === 'not_configured') {
+            <div class="build-profile-empty warning"><span class="material-symbols-rounded">warning</span><div><strong>No supported build command found</strong><p>Add a build/check/test script, then run detection again.</p></div></div>
+          } @else {
+            <div class="build-profile-summary">
+              <span class="material-symbols-rounded">verified_user</span>
+              <div><strong>{{ profile.summary }}</strong><p>{{ profile.configFiles.length }} config file{{ profile.configFiles.length === 1 ? '' : 's' }} scanned · cached {{ profile.detectedAt | date:'medium' }}</p></div>
+              <span>Cached locally</span>
+            </div>
+            @if (profile.warning) { <div class="build-profile-warning"><span class="material-symbols-rounded">info</span>{{ profile.warning }}</div> }
+            <div class="build-action-selector">
+              <label class="build-project-select">
+                <span>Work Board build button</span>
+                <select [value]="profile.selectedActionId || ''" (change)="selectBuildAction($event)">
+                  <option value="">No action configured</option>
+                  @for (action of profile.actions; track action.id) {
+                    <option [value]="action.id">{{ action.executable }} {{ action.arguments.join(' ') }}</option>
+                  }
+                </select>
+              </label>
+              <div [class.warning]="!profile.selectedActionId">
+                <span class="material-symbols-rounded">{{ profile.selectedActionId ? 'play_circle' : 'warning' }}</span>
+                <p>
+                  @if (selectedBuildAction(); as action) {
+                    <strong>{{ action.executable }} {{ action.arguments.join(' ') }}</strong>
+                  } @else {
+                    <strong>Build is disabled on Work Board</strong>
+                  }
+                </p>
+              </div>
+            </div>
+          }
+        }
+      </section>
+
+      <section class="deploy-settings-section" aria-labelledby="deploy-action-heading">
+        <header class="deploy-settings-header">
+          <span class="settings-icon material-symbols-rounded">rocket_launch</span>
+          <div>
+            <span class="eyebrow">DELIVERY SAFETY</span>
+            <h2 id="deploy-action-heading">Production Deployment</h2>
+            <p>Scan local build files, then explicitly select the single command allowed to push this project to production.</p>
+          </div>
+          <span class="deploy-profile-status" [attr.data-status]="deployProfile()?.status || 'not_detected'"><i></i>{{ deployStatusLabel(deployProfile()) }}</span>
+        </header>
+
+        <div class="deploy-settings-toolbar">
+          <label class="build-project-select">
+            <span>Project</span>
+            <select [value]="selectedDeployProjectId()" (change)="selectDeployProject($event)">
+              @for (project of projects(); track project.id) { <option [value]="project.id" [selected]="project.id === selectedDeployProjectId()">{{ project.name }} · {{ project.source }}</option> }
+            </select>
+          </label>
+          <button type="button" class="secondary-button deploy-detect-button" (click)="detectDeployActions()" [disabled]="!selectedDeployProjectId() || deployDetecting()">
+            <span class="material-symbols-rounded" [class.spin]="deployDetecting()">{{ deployDetecting() ? 'progress_activity' : 'manage_search' }}</span>
+            {{ deployDetecting() ? 'Scanning configuration files…' : deployProfile()?.status === 'not_detected' ? 'Detect deploy scripts' : 'Detect again' }}
+          </button>
+        </div>
+
+        @if (deployProfileLoading()) {
+          <div class="build-profile-empty"><span class="material-symbols-rounded spin">progress_activity</span><strong>Loading cached deploy profile…</strong></div>
+        } @else if (deployProfile(); as profile) {
+          @if (profile.status === 'not_detected') {
+            <div class="build-profile-empty"><span class="material-symbols-rounded">terminal</span><div><strong>No cached deploy profile</strong><p>Detect deploy-like scripts from package.json and Makefile for this project.</p></div></div>
+          } @else if (profile.status === 'not_configured') {
+            <div class="build-profile-empty warning"><span class="material-symbols-rounded">warning</span><div><strong>No supported deploy command found</strong><p>Add a deploy/publish/release script, then run detection again.</p></div></div>
+          } @else {
+            <div class="build-profile-summary">
+              <span class="material-symbols-rounded">verified_user</span>
+              <div><strong>{{ profile.configFiles.length }} configuration file{{ profile.configFiles.length === 1 ? '' : 's' }} scanned</strong><p>ProductCrew detected candidate deploy scripts. Selection is never automated: you must choose and save an action below. Cached {{ profile.detectedAt | date:'medium' }}</p></div>
+              <span>Cached locally</span>
+            </div>
+            @if (profile.warning) { <div class="build-profile-warning"><span class="material-symbols-rounded">info</span>{{ profile.warning }}</div> }
+            <div class="build-action-selector">
+              <label class="build-project-select">
+                <span>Workboard Deploy button command</span>
+                <select [value]="profile.selectedActionId || ''" (change)="selectDeployAction($event)">
+                  <option value="">No action configured (Deploy disabled)</option>
+                  @for (action of profile.actions; track action.id) {
+                    <option [value]="action.id">{{ action.executable }} {{ action.arguments.join(' ') }} ({{ action.source }})</option>
+                  }
+                </select>
+              </label>
+              <div [class.warning]="!profile.selectedActionId">
+                <span class="material-symbols-rounded">{{ profile.selectedActionId ? 'verified' : 'warning' }}</span>
+                <p>
+                  @if (selectedDeployAction(); as action) {
+                    <strong>Active command: {{ action.executable }} {{ action.arguments.join(' ') }}</strong>
+                  } @else {
+                    <strong>No command selected. The Deploy button on the Workboard will remain disabled.</strong>
+                  }
+                </p>
+              </div>
+            </div>
+          }
+        }
+      </section>
+
+      <section class="toolchain-section" aria-labelledby="toolchain-heading">
+        <div class="toolchain-health" [class.attention]="(toolchain()?.actionsRecommended ?? 0) > 0">
+          <div>
+            <span class="material-symbols-rounded">{{ toolchain()?.operational ? 'check_circle' : 'error' }}</span>
+            <strong>{{ toolchain()?.operational ? 'Environment operational' : 'Environment needs setup' }}</strong>
+            @if (toolchain(); as snapshot) {
+              <span>· {{ snapshot.actionsRecommended }} {{ snapshot.actionsRecommended === 1 ? 'action' : 'actions' }} recommended</span>
+            }
+          </div>
+          <button type="button" (click)="loadToolchain(true)" [disabled]="toolchainRefreshing() || runningToolAction() !== null">
+            <span class="material-symbols-rounded" [class.spin]="toolchainRefreshing()">refresh</span>
+            {{ toolchainRefreshing() ? 'Checking tools…' : 'Refresh status' }}
+          </button>
+        </div>
+
+        <header class="toolchain-title">
+          <div><h2 id="toolchain-heading">CLI tools</h2><p>Manage and monitor command-line tools used by ProductCrew.</p></div>
+          <span class="mode-badge"><span class="material-symbols-rounded">computer</span>Local device</span>
+        </header>
+
+        @if (toolchainError(); as error) {
+          <div class="toolchain-error" role="alert"><span class="material-symbols-rounded">error</span><span>{{ error }}</span></div>
+        }
+
+        <div class="toolchain-console">
+          <aside class="tool-list-pane">
+            <label class="tool-search">
+              <span class="material-symbols-rounded">search</span>
+              <input type="search" placeholder="Search tools…" [value]="toolSearch()" (input)="updateToolSearch($event)" aria-label="Search CLI tools">
+            </label>
+            <div class="tool-filters" role="group" aria-label="Filter CLI tools">
+              <button type="button" [class.active]="toolFilter() === 'all'" (click)="toolFilter.set('all')">All</button>
+              <button type="button" [class.active]="toolFilter() === 'attention'" (click)="toolFilter.set('attention')">Attention</button>
+              <button type="button" [class.active]="toolFilter() === 'ready'" (click)="toolFilter.set('ready')">Ready</button>
+            </div>
+
+            <div class="tool-list" aria-live="polite">
+              @if (toolchainLoading()) {
+                @for (item of [1, 2, 3, 4, 5]; track item) { <div class="tool-list-skeleton"></div> }
+              } @else {
+                @for (tool of filteredTools(); track tool.id) {
+                  <button type="button" class="tool-list-item" [class.active]="selectedTool()?.id === tool.id" (click)="selectTool(tool)">
+                    <span class="tool-logo material-symbols-rounded">{{ tool.icon }}</span>
+                    <span class="tool-list-copy"><strong>{{ tool.name }}</strong><small>{{ tool.installedVersion || statusLabel(tool) }}</small></span>
+                    <i class="tool-status-dot" [class]="'tool-status-dot ' + tool.status" [attr.aria-label]="statusLabel(tool)"></i>
+                  </button>
+                } @empty {
+                  <div class="tool-list-empty">No tools match this filter.</div>
+                }
+              }
+            </div>
+          </aside>
+
+          <div class="tool-detail-pane">
+            @if (selectedTool(); as tool) {
+              <header class="tool-detail-header">
+                <span class="tool-detail-logo material-symbols-rounded">{{ tool.icon }}</span>
+                <div class="tool-detail-name">
+                  <h3>{{ tool.name }}</h3>
+                  <span class="tool-status-badge" [class]="'tool-status-badge ' + tool.status">{{ statusLabel(tool) }}</span>
+                </div>
+                <div class="tool-detail-actions">
+                  @if (tool.action) {
+                    <button type="button" class="primary-button compact" (click)="runToolAction(tool)" [disabled]="!tool.actionAvailable || runningToolAction() !== null">
+                      <span class="material-symbols-rounded" [class.spin]="runningToolAction() === tool.id">{{ runningToolAction() === tool.id ? 'progress_activity' : tool.action === 'install' ? 'download' : 'upgrade' }}</span>
+                      {{ runningToolAction() === tool.id ? (tool.action === 'install' ? 'Installing…' : 'Updating…') : (tool.action === 'install' ? 'Install ' : 'Update ') + tool.name }}
+                    </button>
+                    @if (!tool.actionAvailable) { <small class="tool-action-hint">{{ tool.message }}</small> }
+                  }
+                  <button type="button" class="secondary-button compact" (click)="loadToolchain(true)" [disabled]="toolchainRefreshing() || runningToolAction() !== null">
+                    <span class="material-symbols-rounded">monitor_heart</span>Run diagnostics
+                  </button>
+                </div>
+              </header>
+
+              <div class="tool-facts">
+                <dl>
+                  <div><dt>Installed</dt><dd>{{ tool.installedVersion || 'Not installed' }}</dd></div>
+                  <div><dt>Latest</dt><dd>{{ tool.latestVersion || 'Unavailable' }} @if (tool.status === 'update_available') { <span class="version-warning">Newer version</span> }</dd></div>
+                  <div class="wide"><dt>Executable</dt><dd [title]="tool.executablePath">{{ tool.executablePath || 'Command not found in PATH' }}</dd></div>
+                </dl>
+                <dl>
+                  <div><dt>Requirement</dt><dd>{{ tool.required ? 'Core tool' : 'Project runtime' }}</dd></div>
+                  @if (tool.id === 'gh') { <div><dt>Authentication</dt><dd>{{ tool.account ? 'Connected as ' + tool.account : 'Not connected' }}</dd></div> }
+                  <div><dt>Last checked</dt><dd>{{ formattedToolchainCheck() }}</dd></div>
+                </dl>
+              </div>
+
+              <section class="readiness-panel" aria-labelledby="readiness-heading">
+                <h4 id="readiness-heading">Readiness checklist</h4>
+                <div class="readiness-list">
+                  @for (check of tool.checks; track check.id) {
+                    <article class="readiness-row">
+                      <span class="readiness-icon material-symbols-rounded">{{ check.id === 'command' ? 'terminal' : check.id === 'version' ? 'download' : check.id === 'authentication' ? 'person' : 'extension' }}</span>
+                      <div><strong>{{ check.label }}</strong><p>{{ check.detail }}</p></div>
+                      <span class="check-outcome" [class]="'check-outcome ' + check.outcome"><span class="material-symbols-rounded">{{ checkIcon(check.outcome) }}</span>{{ checkLabel(check.outcome) }}</span>
+                    </article>
+                  }
+                </div>
+              </section>
+
+              <button type="button" class="installation-disclosure" (click)="expandedInstallation.set(!expandedInstallation())" [attr.aria-expanded]="expandedInstallation()">
+                <span>Installation details</span><span class="material-symbols-rounded">{{ expandedInstallation() ? 'expand_less' : 'expand_more' }}</span>
+              </button>
+              @if (expandedInstallation()) {
+                <div class="installation-details">
+                  <div><span>Package source</span><strong>{{ tool.packageManager === 'nvm' ? 'NVM for Windows' : tool.packageManager === 'external' ? 'External application' : 'Windows Package Manager (winget)' }}</strong></div>
+                  <div><span>Management</span><strong>{{ tool.packageManager === 'nvm' ? 'NVM install and activate' : tool.packageManager === 'external' ? 'Use the managing application updater' : 'Silent, official package ID' }}</strong></div>
+                  <p><span class="material-symbols-rounded">shield</span>{{ tool.packageManager === 'external' ? tool.message : 'Windows may request administrator permission. Setup continues in the local service if this browser closes.' }}</p>
+                </div>
+              }
+            } @else if (!toolchainLoading()) {
+              <div class="tool-detail-empty"><span class="material-symbols-rounded">terminal</span><strong>Select a CLI tool</strong><p>Choose a tool to review its version, diagnostics, and setup actions.</p></div>
+            }
+          </div>
+        </div>
+      </section>
+
+      <section class="agent-definition-card" aria-labelledby="agent-definitions-heading">
+        <header class="agent-definition-header">
+          <div class="settings-card-header">
+            <span class="settings-icon material-symbols-rounded">psychology</span>
+            <div>
+              <h2 id="agent-definitions-heading">Agent Studio</h2>
+              <p>Project-specific Working Standard, role profiles, and reusable skills for every imported workspace.</p>
+            </div>
+          </div>
+          <div class="agent-studio-status">
+            <span class="profile-version">Profile v{{ currentAgentStudioProfile()?.agentProfileVersion || 1 }}</span>
+            <span class="profile-version" [class.inherited]="agentStudioProfile()?.inherited || !selectedAgentStudioProjectId()">{{ agentStudioScopeLabel() }}</span>
+            <span class="mode-badge" [class.editing]="editingAgentProfile() !== null || editingSkillID() !== null">
+              <span class="material-symbols-rounded">{{ editingAgentProfile() === null && editingSkillID() === null ? 'lock' : 'edit_note' }}</span>
+              {{ editingAgentProfile() === null && editingSkillID() === null ? 'Read only' : 'Editing' }}
+            </span>
+          </div>
+        </header>
+
+        <div class="agent-project-bar">
+          <div class="agent-project-select">
+            <span>Project instruction profile</span>
+            <div class="agent-project-combobox" [class.open]="agentStudioProjectMenuOpen()">
+              <button type="button" class="agent-project-trigger" (click)="toggleAgentStudioProjectMenu()" [disabled]="agentStudioProfileLoading() || editingAgentProfile() !== null || editingSkillID() !== null" aria-haspopup="listbox" [attr.aria-expanded]="agentStudioProjectMenuOpen()">
+                <span class="agent-project-copy">
+                  <strong>{{ selectedAgentStudioProject()?.name || 'Select project' }}</strong>
+                  <small>{{ selectedAgentStudioProject()?.path || 'Add a project to create project-scoped instructions.' }}</small>
+                </span>
+                @if (selectedAgentStudioProject(); as project) { <span class="project-source-badge">{{ project.source }}</span> }
+                <span class="material-symbols-rounded">expand_more</span>
+              </button>
+              @if (agentStudioProjectMenuOpen()) {
+                <div class="agent-project-menu" role="listbox" aria-label="Agent Studio project profiles">
+                  @for (project of projects(); track project.id) {
+                    <button type="button" class="agent-project-option" role="option" [class.active]="project.id === selectedAgentStudioProjectId()" [attr.aria-selected]="project.id === selectedAgentStudioProjectId()" (click)="chooseAgentStudioProject(project.id)">
+                      <span class="agent-project-copy">
+                        <strong>{{ project.name }}</strong>
+                        <small>{{ project.path }}</small>
+                      </span>
+                      <span class="project-source-badge">{{ project.source }}</span>
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+            <small>{{ agentStudioProjectPath() || 'Add a project to create project-scoped agent instructions.' }}</small>
+          </div>
+          <div class="agent-project-storage">
+            <span class="material-symbols-rounded">folder_managed</span>
+            <span><strong>{{ agentStudioStorageLabel() }}</strong><small>{{ agentStudioProfile()?.dataPath || 'Project profiles are seeded from global defaults.' }}</small></span>
+          </div>
+        </div>
+
+        <div class="agent-definition-layout">
+          <nav class="agent-role-list" aria-label="Agent profiles">
+            <button type="button" [class.active]="selectedAgentProfile() === 'standard'" [disabled]="editingAgentProfile() !== null || editingSkillID() !== null" (click)="selectAgentProfile('standard')">
+              <span class="material-symbols-rounded">policy</span>
+              <span><strong>Working Standard</strong><small>Shared inside this project</small></span>
+              @if (selectedAgentProfile() === 'standard') { <span class="material-symbols-rounded role-arrow">chevron_right</span> }
+            </button>
+            <div class="agent-role-divider"><span>Role profiles</span></div>
+            @for (role of roleOptions; track role.id) {
+              <button type="button" [class.active]="selectedAgentProfile() === role.id" [disabled]="editingAgentProfile() !== null || editingSkillID() !== null" (click)="selectAgentProfile(role.id)">
+                <span class="material-symbols-rounded">{{ role.icon }}</span>
+                <span><strong>{{ role.label }}</strong><small>{{ role.description }}</small></span>
+                @if (selectedAgentProfile() === role.id) { <span class="material-symbols-rounded role-arrow">chevron_right</span> }
+              </button>
+            }
+          </nav>
+
+          <div class="agent-editor-panel">
+            <div class="agent-editor-toolbar">
+              <div>
+                <span class="eyebrow">{{ selectedAgentProfile() === 'standard' ? 'SHARED BEHAVIOR' : agentProfileLabel().toUpperCase() + ' AGENT' }}</span>
+                <h3>{{ agentProfileLabel() }}</h3>
+                <p>{{ selectedAgentProfile() === 'standard' ? 'Automatically prepended to every ProductCrew agent for the selected project.' : 'Role-specific mission, responsibilities, boundaries, and Definition of Done for this project.' }}</p>
+              </div>
+              @if (editingAgentProfile() === null) {
+                <button type="button" class="secondary-button compact" (click)="beginAgentProfileEdit()" [disabled]="editingSkillID() !== null"><span class="material-symbols-rounded">edit</span>Edit profile</button>
+              } @else {
+                <div class="agent-editor-actions">
+                  <button type="button" class="secondary-button compact" (click)="cancelAgentProfileEdit()" [disabled]="savingAgentProfile()">Cancel</button>
+                  <button type="button" class="primary-button compact" (click)="saveAgentProfile()" [disabled]="savingAgentProfile() || agentProfileDraft().trim().length === 0">
+                    <span class="material-symbols-rounded" [class.spin]="savingAgentProfile()">{{ savingAgentProfile() ? 'progress_activity' : 'save' }}</span>
+                    {{ savingAgentProfile() ? 'Saving…' : 'Save' }}
+                  </button>
+                </div>
+              }
+            </div>
+
+            @if (editingAgentProfile() === selectedAgentProfile()) {
+              <label class="markdown-editor">
+                <span>Markdown content</span>
+                <textarea rows="18" maxlength="50000" spellcheck="false" [value]="agentProfileDraft()" (input)="updateAgentProfileDraft($event)"></textarea>
+                <small><span>Use testable rules and explicit boundaries. Project AGENTS.md remains project-specific.</span><span>{{ agentProfileDraft().length }} / 50,000</span></small>
+              </label>
+            } @else {
+              <pre class="markdown-preview agent-profile-preview" tabindex="0" [attr.aria-label]="agentProfileLabel() + ' Markdown instructions'">{{ agentProfileContent() }}</pre>
+            }
+
+            @if (selectedRole(); as role) {
+              <section class="agent-skills-section" aria-labelledby="agent-skills-heading">
+                <div class="agent-subsection-heading">
+                  <div><span class="eyebrow">REUSABLE KNOWLEDGE</span><h4 id="agent-skills-heading">Skills for {{ agentProfileLabel() }}</h4></div>
+                  <span>{{ effectiveProfile()?.skills?.length || 0 }} applied</span>
+                </div>
+                <div class="agent-skill-grid">
+                  @for (skill of currentAgentStudioProfile()?.agentSkills || []; track skill.id) {
+                    <article class="agent-skill-card" [class.selected]="selectedSkill()?.id === skill.id" [class.assigned]="isSkillAssigned(skill, role)">
+                      <button type="button" class="agent-skill-main" (click)="selectSkill(skill)" [disabled]="editingSkillID() !== null">
+                        <span class="material-symbols-rounded">{{ isSkillAssigned(skill, role) ? 'check_circle' : 'extension' }}</span>
+                        <span><strong>{{ skill.name }}</strong><small>{{ skill.description }}</small></span>
+                      </button>
+                      <button type="button" class="skill-route-toggle" (click)="toggleSkillAssignment(skill)" [disabled]="savingSkill() || editingSkillID() !== null" [attr.aria-label]="(isSkillAssigned(skill, role) ? 'Remove ' : 'Assign ') + skill.name">
+                        {{ isSkillAssigned(skill, role) ? 'Applied' : 'Assign' }}
+                      </button>
+                    </article>
+                  }
+                </div>
+
+                @if (selectedSkill(); as skill) {
+                  <div class="skill-inspector">
+                    <header>
+                      <div><span class="material-symbols-rounded">extension</span><span><strong>{{ skill.name }}</strong><small>{{ skill.id }}</small></span></div>
+                      @if (editingSkillID() === null) {
+                        <button type="button" class="secondary-button compact" (click)="beginSkillEdit(skill)" [disabled]="editingAgentProfile() !== null"><span class="material-symbols-rounded">edit</span>Edit skill</button>
+                      } @else {
+                        <div class="agent-editor-actions">
+                          <button type="button" class="secondary-button compact" (click)="cancelSkillEdit()" [disabled]="savingSkill()">Cancel</button>
+                          <button type="button" class="primary-button compact" (click)="saveSkill()" [disabled]="savingSkill() || !skillDraft()?.instructions?.trim()">{{ savingSkill() ? 'Saving…' : 'Save skill' }}</button>
+                        </div>
+                      }
+                    </header>
+                    @if (editingSkillID() === skill.id) {
+                      <label class="markdown-editor compact-editor">
+                        <span>Skill Markdown</span>
+                        <textarea rows="9" maxlength="20000" spellcheck="false" [value]="skillDraft()?.instructions || ''" (input)="updateSkillInstructions($event)"></textarea>
+                      </label>
+                    } @else {
+                      <pre class="skill-markdown-preview">{{ skill.instructions }}</pre>
+                    }
+                  </div>
+                }
+
+                <details class="effective-profile-disclosure">
+                  <summary>
+                    <span class="material-symbols-rounded">layers</span>
+                    <span><strong>Effective instructions preview</strong><small>Exact shared standard, role profile, and skills sent to the selected AI runtime.</small></span>
+                    <span class="material-symbols-rounded disclosure-chevron">expand_more</span>
+                  </summary>
+                  @if (effectiveProfileLoading()) {
+                    <div class="effective-profile-loading"><span class="spinner"></span>Composing profile…</div>
+                  } @else {
+                    <div class="effective-profile-meta"><span>Profile v{{ effectiveProfile()?.version || currentAgentStudioProfile()?.agentProfileVersion }}</span><span>{{ effectiveProfile()?.skills?.length || 0 }} skills</span><span>Repository AGENTS.md loads separately</span></div>
+                    <pre class="markdown-preview effective-profile-preview">{{ effectiveProfile()?.content || 'Select the role again to refresh this preview.' }}</pre>
+                  }
+                </details>
+              </section>
+            }
+          </div>
+        </div>
+        <footer class="agent-definition-footer"><span class="material-symbols-rounded">verified_user</span><span>Selected-project instructions are applied automatically to delivery agents, Bug Scanner, and Feature Radar. Repository AGENTS.md rules remain additive.</span><code>{{ agentStudioProfile()?.dataPath || 'settings.json' }}</code></footer>
+      </section>
+    }
+  </main>
+</app-shell>

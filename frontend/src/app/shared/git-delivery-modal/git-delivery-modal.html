@@ -1,0 +1,71 @@
+<div class="delivery-backdrop" (click)="close()">
+  <section class="delivery-modal" role="dialog" aria-modal="true" aria-labelledby="delivery-title" (click)="$event.stopPropagation()">
+    <header>
+      <div class="delivery-title"><span class="material-symbols-rounded">rocket_launch</span><div><h2 id="delivery-title">Git delivery</h2><p>{{ isActive() ? 'Executing delivery to remote repository' : 'Commit and push completed ticket changes safely' }}</p></div></div>
+      <div class="delivery-context">
+        <span><i class="material-symbols-rounded">group_work</i><b>{{ projectName || preview()?.projectName || 'Project' }}</b><small>Project</small></span>
+        <span><i class="material-symbols-rounded">account_tree</i><b>{{ delivery()?.branch || preview()?.branch || '—' }}</b><small>Branch</small></span>
+        @if (delivery(); as current) { <span><i class="material-symbols-rounded">sell</i><b>{{ current.id }}</b><small>Delivery ID</small></span> }
+      </div>
+      <button class="delivery-close" type="button" aria-label="Close Git delivery" (click)="close()"><span class="material-symbols-rounded">close</span></button>
+    </header>
+
+    @if (loading()) {
+      <div class="delivery-loading"><span class="material-symbols-rounded spin">progress_activity</span>Inspecting repository and ticket evidence…</div>
+    } @else {
+      <div class="delivery-body">
+        <section class="delivery-main">
+          <div class="delivery-summary"><h3>{{ (delivery()?.tickets || preview()?.tickets || []).length }} tickets <span>•</span> {{ ticketFileCount() }} files</h3><p>{{ delivery()?.commitMessage || preview()?.commitMessage || 'Review blockers before starting delivery' }}</p></div>
+          <div class="ticket-table">
+            <div class="ticket-head"><span>Ticket</span><span>Title</span><span>Files</span><span>Status</span></div>
+            @for (ticket of (delivery()?.tickets || preview()?.tickets || []); track ticket.taskId) {
+              <div class="ticket-row"><b>{{ ticket.key }}</b><span>{{ ticket.title }}</span><strong>{{ ticket.files.length }}</strong><em><i class="material-symbols-rounded">check_circle</i>Ready</em></div>
+            } @empty { <div class="ticket-empty">No completed tickets map to the current changes.</div> }
+          </div>
+
+          <div class="delivery-steps">
+            @for (step of ['preflight', 'commit', 'push', 'complete']; track step; let last = $last) {
+              <div class="delivery-step" [class.done]="isDone($any(step))" [class.current]="isCurrent($any(step))">
+                <div class="step-track"><i class="material-symbols-rounded">{{ isDone($any(step)) ? 'check' : isCurrent($any(step)) ? 'progress_activity' : ($index + 1) }}</i>@if (!last) {<span></span>}</div>
+                <b>{{ stepLabel($any(step)) }}</b>
+                <small>{{ isDone($any(step)) ? 'Completed' : isCurrent($any(step)) ? (delivery()?.status === 'recovering' ? 'Recovering' : 'Running') : 'Pending' }}</small>
+                @if (step === 'commit' && delivery()?.shortSha) { <code>{{ delivery()?.shortSha }}</code> }
+              </div>
+            }
+          </div>
+
+          <div class="integrity-strip"><span class="material-symbols-rounded">verified_user</span>No broad staging <i>•</i> No force push <i>•</i> Remote SHA is reconciled</div>
+        </section>
+
+        <aside class="delivery-activity">
+          <div><h3>Activity &amp; recovery</h3><p>Durable execution events and recovery actions</p></div>
+          <div class="timeline">
+            @for (event of delivery()?.events || []; track event.id) {
+              <article [attr.data-level]="event.level"><time>{{ event.timestamp | date:'HH:mm:ss' }}</time><i></i><div><b>{{ event.message }}</b>@if (event.detail) {<p>{{ event.detail }}</p>}</div></article>
+            } @empty { <div class="activity-empty"><span class="material-symbols-rounded">history</span>Execution events will appear here.</div> }
+          </div>
+        </aside>
+      </div>
+
+      @if (error() || delivery()?.error || (preview()?.blockers?.length || 0) > 0) {
+        <section class="delivery-alert"><span class="material-symbols-rounded">warning</span><div><b>Delivery needs attention</b><p>{{ error() || delivery()?.error || preview()?.blockers?.join(' ') }}</p></div></section>
+      }
+
+      <details class="delivery-log"><summary><span class="material-symbols-rounded">terminal</span><b>Detailed log</b><small>{{ delivery()?.events?.length || 0 }} events · Trace ID {{ delivery()?.id || 'not started' }}</small><span class="material-symbols-rounded">expand_more</span></summary><pre>@for (event of delivery()?.events || []; track event.id) {<span>{{ event.timestamp | date:'HH:mm:ss' }}  {{ event.message }}@if (event.detail) { — {{ event.detail }}}</span>
+}</pre></details>
+    }
+
+    <footer>
+      @if (isActive()) {
+        <button class="secondary-action" type="button" [disabled]="actionPending() || delivery()?.stopRequested" (click)="stop()"><span class="material-symbols-rounded">stop</span><span><b>{{ delivery()?.stopRequested ? 'Safe stop requested' : 'Stop after current step' }}</b><small>No new Git mutation will start</small></span></button>
+        <button class="pending-action" type="button" disabled><span class="material-symbols-rounded spin">progress_activity</span><span><b>{{ delivery()?.status === 'recovering' ? 'Recovery session running…' : 'Delivery in progress…' }}</b><small>ProductCrew is protecting repository state</small></span></button>
+      } @else if (delivery()?.status === 'failed' || delivery()?.status === 'paused') {
+        <button class="secondary-action" type="button" (click)="refresh()"><span class="material-symbols-rounded">refresh</span><b>Refresh preflight</b></button>
+        <button class="primary-action" type="button" [disabled]="actionPending()" (click)="retry()"><span class="material-symbols-rounded">replay</span>Retry delivery</button>
+      } @else {
+        <button class="secondary-action" type="button" (click)="close()">Cancel</button>
+        <button class="primary-action" type="button" [disabled]="!preview()?.ready || actionPending()" (click)="start()"><span class="material-symbols-rounded">rocket_launch</span>Commit &amp; push {{ preview()?.tickets?.length || 0 }} tickets</button>
+      }
+    </footer>
+  </section>
+</div>
